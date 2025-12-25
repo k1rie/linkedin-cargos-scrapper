@@ -34,24 +34,72 @@ const loadCookies = async () => {
 const login = async (email, password) => {
   // Usar headless en producción (Railway no tiene servidor X)
   const isHeadless = process.env.NODE_ENV === 'production' || process.env.HEADLESS === 'true';
-  const browser = await chromium.launch({ headless: isHeadless });
-  const context = await browser.newContext();
+  const browser = await chromium.launch({ 
+    headless: isHeadless,
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+  });
+  const context = await browser.newContext({
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+  });
   const page = await context.newPage();
 
   try {
-    await page.goto('https://www.linkedin.com/login');
+    await page.goto('https://www.linkedin.com/login', { waitUntil: 'networkidle', timeout: 60000 });
+    
+    // Esperar a que los campos de login estén disponibles
+    await page.waitForSelector('#username', { timeout: 10000 });
+    await page.waitForSelector('#password', { timeout: 10000 });
     
     await page.fill('#username', email);
     await page.fill('#password', password);
+    
+    // Esperar un poco antes de hacer click
+    await page.waitForTimeout(1000);
+    
     await page.click('button[type="submit"]');
     
-    await page.waitForURL('https://www.linkedin.com/feed/**', { timeout: 30000 });
+    // Esperar a que la navegación ocurra (puede ir a feed, o a verificación, etc.)
+    try {
+      await page.waitForURL(/https:\/\/www\.linkedin\.com\/(feed|checkpoint|challenge)/, { timeout: 60000 });
+    } catch (urlError) {
+      // Si no redirige, esperar un poco más y verificar la URL actual
+      await page.waitForTimeout(5000);
+    }
     
-    const cookies = await context.cookies();
-    await saveCookies(cookies);
-    await browser.close();
+    const currentUrl = page.url();
+    console.log(`Login redirect to: ${currentUrl}`);
     
-    return { success: true, cookies };
+    // Verificar si el login fue exitoso
+    // LinkedIn puede redirigir a feed, checkpoint, o challenge
+    if (currentUrl.includes('/feed') || currentUrl.includes('/checkpoint') || currentUrl.includes('/challenge')) {
+      // Si está en checkpoint o challenge, LinkedIn puede estar pidiendo verificación
+      if (currentUrl.includes('/checkpoint') || currentUrl.includes('/challenge')) {
+        console.warn('LinkedIn may require additional verification');
+        // Aún así, guardamos las cookies por si acaso
+      }
+      
+      const cookies = await context.cookies();
+      await saveCookies(cookies);
+      await browser.close();
+      
+      // Si está en feed, el login fue exitoso
+      if (currentUrl.includes('/feed')) {
+        return { success: true, cookies };
+      } else {
+        // Si está en checkpoint/challenge, puede necesitar verificación manual
+        return { success: true, cookies, requiresVerification: true };
+      }
+    } else if (currentUrl.includes('/login')) {
+      // Si sigue en login, el login falló
+      await browser.close();
+      return { success: false, error: 'Login failed - still on login page' };
+    } else {
+      // Otra redirección, guardar cookies de todas formas
+      const cookies = await context.cookies();
+      await saveCookies(cookies);
+      await browser.close();
+      return { success: true, cookies, warning: `Unexpected redirect to: ${currentUrl}` };
+    }
   } catch (error) {
     await browser.close();
     return { success: false, error: error.message };
