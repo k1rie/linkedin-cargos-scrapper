@@ -48,5 +48,17 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  
+  // Iniciar scraping automáticamente al arrancar el servidor
+  const scrapeService = require('./services/scrapeService');
+  
+  console.log('Starting automatic scraping...');
+  scrapeService.startScraping()
+    .then(() => {
+      console.log('Initial scraping completed');
+    })
+    .catch((error) => {
+      console.error('Initial scraping error:', error);
+    });
 });
 
