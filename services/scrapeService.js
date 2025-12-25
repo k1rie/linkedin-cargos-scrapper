@@ -2,39 +2,6 @@ const hubspotService = require('./hubspotService');
 const clickupService = require('./clickupService');
 const linkedinService = require('./linkedinService');
 
-// Exportar filterResults para uso en otros scripts
-const filterResults = (results, companyName, jobTitle) => {
-  return results.filter(person => {
-    if (!person.title || !person.profileUrl) {
-      return false;
-    }
-    
-    const personTitle = person.title.toLowerCase();
-    const searchJobTitle = jobTitle.toLowerCase();
-    
-    // Extraer palabras clave del cargo (ignorar artículos y palabras muy cortas)
-    const stopWords = ['de', 'del', 'la', 'el', 'en', 'y', 'o', 'a', 'al', 'los', 'las', 'un', 'una'];
-    const jobTitleWords = searchJobTitle
-      .split(/\s+/)
-      .filter(w => w.length > 2 && !stopWords.includes(w));
-    
-    // Verificar coincidencia con el cargo
-    // LinkedIn ya filtra por empresa, solo necesitamos verificar el cargo
-    let titleMatch = false;
-    if (jobTitleWords.length > 0) {
-      const matchingWords = jobTitleWords.filter(word => personTitle.includes(word));
-      // Si hay al menos 1 palabra clave del cargo (más flexible)
-      titleMatch = matchingWords.length >= 1 || 
-                  personTitle.includes(searchJobTitle) ||
-                  searchJobTitle.includes(personTitle.split('|')[0].trim().toLowerCase());
-    } else {
-      titleMatch = personTitle.includes(searchJobTitle) || searchJobTitle.includes(personTitle);
-    }
-    
-    return titleMatch;
-  });
-};
-
 const filterResults = (results, companyName, jobTitle) => {
   return results.filter(person => {
     if (!person.title || !person.profileUrl) {
