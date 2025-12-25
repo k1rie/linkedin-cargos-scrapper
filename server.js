@@ -48,17 +48,45 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log('');
+  console.log('📝 To start scraping:');
+  console.log('   1. Open http://localhost:8080 in your browser');
+  console.log('   2. Upload your LinkedIn cookies');
+  console.log('   3. The scraping will start automatically');
+  console.log('');
   
-  // Iniciar scraping automáticamente al arrancar el servidor
+  // Verificar si ya hay cookies guardadas
   const scrapeService = require('./services/scrapeService');
+  const linkedinService = require('./services/linkedinService');
   
-  console.log('Starting automatic scraping...');
-  scrapeService.startScraping()
-    .then(() => {
-      console.log('Initial scraping completed');
+  linkedinService.checkSession()
+    .then((isLoggedIn) => {
+      if (isLoggedIn) {
+        console.log('✅ Valid LinkedIn session found!');
+        console.log('Starting automatic scraping...');
+        
+        scrapeService.startScraping()
+          .then((result) => {
+            if (result && result.requiresCookies) {
+              console.log('⚠️  Cookies expired. Please upload new cookies.');
+              return;
+            }
+            
+            if (result && result.success) {
+              console.log('✓ Initial scraping completed successfully');
+            }
+          })
+          .catch((error) => {
+            console.error('Initial scraping error:', error.message);
+            console.log('⚠️  Server will continue running');
+          });
+      } else {
+        console.log('⚠️  No valid LinkedIn session found');
+        console.log('📝 Please upload your cookies via http://localhost:8080');
+      }
     })
     .catch((error) => {
-      console.error('Initial scraping error:', error);
+      console.error('Session check error:', error.message);
     });
 });
 

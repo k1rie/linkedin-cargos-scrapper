@@ -4,8 +4,6 @@ const path = require('path');
 require('dotenv').config();
 
 const COOKIES_FILE = path.join(__dirname, '../data/cookies.json');
-const LINKEDIN_EMAIL = process.env.LINKEDIN_EMAIL;
-const LINKEDIN_PASSWORD = process.env.LINKEDIN_PASSWORD;
 
 const ensureDataDirectory = async () => {
   const dataDir = path.dirname(COOKIES_FILE);
@@ -22,87 +20,26 @@ const saveCookies = async (cookies) => {
 };
 
 const loadCookies = async () => {
+  // Primero intentar cargar desde .env
+  if (process.env.LINKEDIN_COOKIES) {
+    try {
+      const cookies = JSON.parse(process.env.LINKEDIN_COOKIES);
+      console.log('✓ Loaded cookies from .env');
+      return cookies;
+    } catch (error) {
+      console.error('Error parsing LINKEDIN_COOKIES from .env:', error.message);
+    }
+  }
+  
+  // Si no hay en .env, intentar cargar desde archivo
   try {
     await ensureDataDirectory();
     const data = await fs.readFile(COOKIES_FILE, 'utf8');
-    return JSON.parse(data);
+    const cookies = JSON.parse(data);
+    console.log('✓ Loaded cookies from file');
+    return cookies;
   } catch {
     return null;
-  }
-};
-
-const login = async (email, password) => {
-  // Usar headless en producción (Railway no tiene servidor X)
-  const isHeadless = process.env.NODE_ENV === 'production' || process.env.HEADLESS === 'true';
-  const browser = await chromium.launch({ 
-    headless: isHeadless,
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-  });
-  const context = await browser.newContext({
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-  });
-  const page = await context.newPage();
-
-  try {
-    await page.goto('https://www.linkedin.com/login', { waitUntil: 'networkidle', timeout: 60000 });
-    
-    // Esperar a que los campos de login estén disponibles
-    await page.waitForSelector('#username', { timeout: 10000 });
-    await page.waitForSelector('#password', { timeout: 10000 });
-    
-    await page.fill('#username', email);
-    await page.fill('#password', password);
-    
-    // Esperar un poco antes de hacer click
-    await page.waitForTimeout(1000);
-    
-    await page.click('button[type="submit"]');
-    
-    // Esperar a que la navegación ocurra (puede ir a feed, o a verificación, etc.)
-    try {
-      await page.waitForURL(/https:\/\/www\.linkedin\.com\/(feed|checkpoint|challenge)/, { timeout: 60000 });
-    } catch (urlError) {
-      // Si no redirige, esperar un poco más y verificar la URL actual
-      await page.waitForTimeout(5000);
-    }
-    
-    const currentUrl = page.url();
-    console.log(`Login redirect to: ${currentUrl}`);
-    
-    // Verificar si el login fue exitoso
-    // LinkedIn puede redirigir a feed, checkpoint, o challenge
-    if (currentUrl.includes('/feed') || currentUrl.includes('/checkpoint') || currentUrl.includes('/challenge')) {
-      // Si está en checkpoint o challenge, LinkedIn puede estar pidiendo verificación
-      if (currentUrl.includes('/checkpoint') || currentUrl.includes('/challenge')) {
-        console.warn('LinkedIn may require additional verification');
-        // Aún así, guardamos las cookies por si acaso
-      }
-      
-      const cookies = await context.cookies();
-      await saveCookies(cookies);
-      await browser.close();
-      
-      // Si está en feed, el login fue exitoso
-      if (currentUrl.includes('/feed')) {
-        return { success: true, cookies };
-      } else {
-        // Si está en checkpoint/challenge, puede necesitar verificación manual
-        return { success: true, cookies, requiresVerification: true };
-      }
-    } else if (currentUrl.includes('/login')) {
-      // Si sigue en login, el login falló
-      await browser.close();
-      return { success: false, error: 'Login failed - still on login page' };
-    } else {
-      // Otra redirección, guardar cookies de todas formas
-      const cookies = await context.cookies();
-      await saveCookies(cookies);
-      await browser.close();
-      return { success: true, cookies, warning: `Unexpected redirect to: ${currentUrl}` };
-    }
-  } catch (error) {
-    await browser.close();
-    return { success: false, error: error.message };
   }
 };
 
@@ -113,13 +50,20 @@ const checkSession = async () => {
     return false;
   }
 
-  const browser = await chromium.launch({ headless: true });
+  const isHeadless = process.env.NODE_ENV === 'production' || process.env.HEADLESS === 'true';
+  const browser = await chromium.launch({ 
+    headless: isHeadless,
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+  });
   const context = await browser.newContext();
   
   try {
     await context.addCookies(cookies);
     const page = await context.newPage();
-    await page.goto('https://www.linkedin.com/feed', { waitUntil: 'networkidle' });
+    await page.goto('https://www.linkedin.com/feed', { 
+      waitUntil: 'domcontentloaded',
+      timeout: 30000 
+    });
     
     const isLoggedIn = !page.url().includes('/login');
     await browser.close();
@@ -131,37 +75,32 @@ const checkSession = async () => {
   }
 };
 
-const attemptAutoLogin = async () => {
-  if (!LINKEDIN_EMAIL || !LINKEDIN_PASSWORD) {
-    return { success: false, error: 'LinkedIn credentials not found in .env file' };
-  }
-  
-  console.log('Attempting auto-login with credentials from .env...');
-  return await login(LINKEDIN_EMAIL, LINKEDIN_PASSWORD);
-};
-
 const ensureLoggedIn = async () => {
   const isLoggedIn = await checkSession();
   
   if (!isLoggedIn) {
-    console.log('No active session found. Attempting auto-login...');
-    const loginResult = await attemptAutoLogin();
+    console.error('❌ No valid LinkedIn session found');
+    console.error('📝 Please upload your LinkedIn cookies via the frontend:');
+    console.error('   1. Open http://localhost:8080');
+    console.error('   2. Follow the instructions to copy your cookies');
+    console.error('   3. Paste them and click "Guardar Cookies"');
     
-    if (!loginResult.success) {
-      throw new Error(`Auto-login failed: ${loginResult.error}`);
-    }
-    
-    console.log('Auto-login successful');
-    return true;
+    return { 
+      loggedIn: false, 
+      requiresCookies: true,
+      error: 'No valid LinkedIn session. Please upload cookies via the frontend.'
+    };
   }
   
-  return true;
+  return { loggedIn: true };
 };
 
 const getBrowserContext = async () => {
-  // Usar headless en producción (Railway no tiene servidor X)
   const isHeadless = process.env.NODE_ENV === 'production' || process.env.HEADLESS === 'true';
-  const browser = await chromium.launch({ headless: isHeadless });
+  const browser = await chromium.launch({ 
+    headless: isHeadless,
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+  });
   const context = await browser.newContext();
   
   const cookies = await loadCookies();
@@ -198,7 +137,7 @@ const searchPeople = async (companyName, jobTitle) => {
       const people = [];
       
       const selectors = [
-        'a[href*="/in/"]', // Links a perfiles de LinkedIn
+        'a[href*="/in/"]',
         '[class*="search-result"]',
         '[data-view-name*="search"]',
         'li[class*="result"]'
@@ -207,7 +146,6 @@ const searchPeople = async (companyName, jobTitle) => {
       let resultElements = [];
       for (const sel of selectors) {
         const elements = document.querySelectorAll(sel);
-        // Filtrar solo los que parecen ser tarjetas de resultados de búsqueda
         resultElements = Array.from(elements).filter(el => {
           const href = el.getAttribute('href') || el.querySelector('a')?.getAttribute('href') || '';
           return href.includes('/in/') && el.textContent.trim().length > 0;
@@ -215,22 +153,18 @@ const searchPeople = async (companyName, jobTitle) => {
         if (resultElements.length > 0) break;
       }
       
-      // Si no encontramos con los selectores anteriores, buscar todos los links a perfiles
       if (resultElements.length === 0) {
         const allLinks = document.querySelectorAll('a[href*="/in/"]');
         resultElements = Array.from(allLinks).filter(link => {
-          // Filtrar solo los que están en contenedores de resultados
           const container = link.closest('[class*="result"], [class*="search"], li, div[role="listitem"]');
           return container && link.textContent.trim().length > 0;
         });
       }
       
-      // Agrupar elementos por contenedor para evitar duplicados
       const processedContainers = new Set();
       
       resultElements.forEach((element) => {
         try {
-          // Buscar el contenedor principal - puede ser un <a> que contiene todo o un contenedor padre
           let container = element;
           if (element.tagName !== 'A' || !element.href.includes('/in/')) {
             container = element.closest('a[href*="/in/"]') || 
@@ -239,17 +173,15 @@ const searchPeople = async (companyName, jobTitle) => {
                        element.parentElement;
           }
           
-          // Crear un ID único para este contenedor basado en su posición y contenido
           const containerId = container.getAttribute('href') || 
                             container.textContent.substring(0, 50) || 
                             container.outerHTML.substring(0, 100);
           
           if (processedContainers.has(containerId)) {
-            return; // Ya procesamos este contenedor
+            return;
           }
           processedContainers.add(containerId);
           
-          // Buscar el link principal al perfil
           let profileLink = null;
           if (container.tagName === 'A' && container.href.includes('/in/')) {
             profileLink = container;
@@ -263,14 +195,11 @@ const searchPeople = async (companyName, jobTitle) => {
           const profileUrl = profileLink.href || profileLink.getAttribute('href');
           if (!profileUrl || !profileUrl.includes('/in/')) return;
           
-          // Extraer el nombre del link o del contenedor
           let name = profileLink.innerText.trim() || profileLink.textContent.trim();
-          // Limpiar el nombre - remover iconos, badges, etc.
           name = name.replace(/•.*$/, '').trim();
           name = name.replace(/·.*$/, '').trim();
           name = name.replace(/\s+/g, ' ').trim();
           
-          // Si el nombre está vacío o es muy corto, buscar en el contenedor
           if (!name || name.length < 2) {
             const nameFromContainer = container.textContent.trim().split('\n')[0].trim();
             if (nameFromContainer.length > 2) {
@@ -278,7 +207,6 @@ const searchPeople = async (companyName, jobTitle) => {
             }
           }
           
-          // Buscar el título/cargo - buscar todos los párrafos y encontrar el que parece ser el título
           let title = '';
           let location = '';
           
@@ -289,7 +217,6 @@ const searchPeople = async (companyName, jobTitle) => {
             const text = el.innerText.trim();
             if (!text || text.length < 5) continue;
             
-            // Detectar ubicación
             if (!location && (
               text.match(/^(Ciudad de México|México|Argentina|Colombia|España|Bogotá|Buenos Aires|Madrid|Barcelona|Lima|Santiago)/i) ||
               (text.includes(',') && text.length < 60 && text.match(/[A-Z][a-z]+,\s*[A-Z][a-z]+/))
@@ -298,7 +225,6 @@ const searchPeople = async (companyName, jobTitle) => {
               continue;
             }
             
-            // Detectar título (no es ubicación, no es "Anterior:", tiene más de 10 caracteres)
             if (!title && 
                 text.length > 10 && 
                 !text.includes('Anterior:') &&
@@ -310,7 +236,6 @@ const searchPeople = async (companyName, jobTitle) => {
             }
           }
           
-          // Si no encontramos título, buscar en divs específicos
           if (!title) {
             const titleDivs = container.querySelectorAll('div[class*="_65b5d50b"] p, div[class*="subtitle"]');
             for (const div of titleDivs) {
@@ -331,11 +256,10 @@ const searchPeople = async (companyName, jobTitle) => {
             });
           }
         } catch (error) {
-          // Silently skip this element if there's an error
+          // Silently skip
         }
       });
       
-      // Eliminar duplicados basados en la URL del perfil
       const uniquePeople = [];
       const seenUrls = new Set();
       for (const person of people) {
@@ -357,12 +281,38 @@ const searchPeople = async (companyName, jobTitle) => {
   }
 };
 
-module.exports = {
-  login,
-  checkSession,
-  attemptAutoLogin,
-  ensureLoggedIn,
-  searchPeople,
-  getBrowserContext
+const saveCookiesFromUser = async (cookies) => {
+  try {
+    if (!Array.isArray(cookies) || cookies.length === 0) {
+      return { success: false, error: 'Invalid cookies format' };
+    }
+    
+    const hasLinkedInCookies = cookies.some(cookie => 
+      cookie.domain && cookie.domain.includes('linkedin.com')
+    );
+    
+    if (!hasLinkedInCookies) {
+      return { success: false, error: 'No LinkedIn cookies found' };
+    }
+    
+    await saveCookies(cookies);
+    
+    const isValid = await checkSession();
+    
+    if (isValid) {
+      return { success: true, message: 'Cookies saved and validated successfully' };
+    } else {
+      return { success: false, error: 'Cookies saved but session validation failed. They might be expired.' };
+    }
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
 };
 
+module.exports = {
+  checkSession,
+  ensureLoggedIn,
+  searchPeople,
+  getBrowserContext,
+  saveCookiesFromUser
+};

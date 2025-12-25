@@ -38,7 +38,22 @@ const startScraping = async () => {
   try {
     console.log('Starting scraping process...');
     
-    await linkedinService.ensureLoggedIn();
+    const loginStatus = await linkedinService.ensureLoggedIn();
+    
+    if (typeof loginStatus === 'object' && !loginStatus.loggedIn) {
+      if (loginStatus.requiresCookies) {
+        console.log('⚠️  No valid LinkedIn session found');
+        console.log('⚠️  Please upload your cookies via the frontend');
+        console.log('⚠️  The server will continue running');
+        
+        return {
+          success: false,
+          requiresCookies: true,
+          message: 'Please upload LinkedIn cookies via the frontend'
+        };
+      }
+      throw new Error(loginStatus.error || 'Session check failed');
+    }
 
     const companies = await hubspotService.getCompaniesFromSegment();
     const jobTitles = await clickupService.getJobTitles();
@@ -99,6 +114,7 @@ const startScraping = async () => {
     }
     
     console.log('Scraping process completed');
+    return { success: true };
   } catch (error) {
     console.error('Scraping error:', error);
     throw error;

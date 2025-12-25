@@ -4,10 +4,22 @@ const cron = require('node-cron');
 
 const runScraping = async () => {
   try {
-    await scrapeService.startScraping();
+    const result = await scrapeService.startScraping();
+    
+    // Verificar si el resultado indica que se requiere verificación
+    if (result && result.requiresVerification) {
+      console.log('⚠️  Scraping paused - verification required');
+      console.log('⚠️  Please verify your account via the frontend');
+      console.log('⚠️  The server will continue running');
+      return;
+    }
+    
+    if (result && result.success) {
+      console.log('✓ Scraping completed successfully');
+    }
   } catch (error) {
-    console.error('Scraping failed:', error);
-    process.exit(1);
+    console.error('Scraping failed:', error.message);
+    console.log('⚠️  Scraping error occurred, but server will continue running');
   }
 };
 
