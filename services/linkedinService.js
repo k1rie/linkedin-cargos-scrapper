@@ -32,7 +32,9 @@ const loadCookies = async () => {
 };
 
 const login = async (email, password) => {
-  const browser = await chromium.launch({ headless: false });
+  // Usar headless en producción (Railway no tiene servidor X)
+  const isHeadless = process.env.NODE_ENV === 'production' || process.env.HEADLESS === 'true';
+  const browser = await chromium.launch({ headless: isHeadless });
   const context = await browser.newContext();
   const page = await context.newPage();
 
@@ -109,7 +111,9 @@ const ensureLoggedIn = async () => {
 };
 
 const getBrowserContext = async () => {
-  const browser = await chromium.launch({ headless: false });
+  // Usar headless en producción (Railway no tiene servidor X)
+  const isHeadless = process.env.NODE_ENV === 'production' || process.env.HEADLESS === 'true';
+  const browser = await chromium.launch({ headless: isHeadless });
   const context = await browser.newContext();
   
   const cookies = await loadCookies();
