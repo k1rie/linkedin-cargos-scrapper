@@ -49,44 +49,51 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log('');
-  console.log('📝 To start scraping:');
-  console.log('   1. Open http://localhost:8080 in your browser');
-  console.log('   2. Upload your LinkedIn cookies');
-  console.log('   3. The scraping will start automatically');
+  
+  // Verificar cookie
+  const LINKEDIN_LI_AT = process.env.LINKEDIN_LI_AT;
+  
+  if (!LINKEDIN_LI_AT || LINKEDIN_LI_AT.trim().length < 10) {
+    console.log('⚠️  LinkedIn cookie not configured');
+    console.log('📝 Please set LINKEDIN_LI_AT in .env');
+    console.log('');
+    console.log('📝 How to extract li_at cookie:');
+    console.log('   1. Open LinkedIn in your browser and log in');
+    console.log('   2. Open DevTools (F12 or Cmd+Option+I)');
+    console.log('   3. Go to Application > Cookies > https://www.linkedin.com');
+    console.log('   4. Find the "li_at" cookie');
+    console.log('   5. Copy the "Value" field');
+    console.log('   6. Add it to .env as: LINKEDIN_LI_AT=your-cookie-value');
+    return;
+  }
+  
+  console.log('✅ LinkedIn cookie found');
+  console.log('Starting automatic scraping...');
   console.log('');
   
-  // Verificar si ya hay cookies guardadas
+  // Iniciar scraping automáticamente
   const scrapeService = require('./services/scrapeService');
-  const linkedinService = require('./services/linkedinService');
   
-  linkedinService.checkSession()
-    .then((isLoggedIn) => {
-      if (isLoggedIn) {
-        console.log('✅ Valid LinkedIn session found!');
-        console.log('Starting automatic scraping...');
-        
-        scrapeService.startScraping()
-          .then((result) => {
-            if (result && result.requiresCookies) {
-              console.log('⚠️  Cookies expired. Please upload new cookies.');
-              return;
-            }
-            
-            if (result && result.success) {
-              console.log('✓ Initial scraping completed successfully');
-            }
-          })
-          .catch((error) => {
-            console.error('Initial scraping error:', error.message);
-            console.log('⚠️  Server will continue running');
-          });
-      } else {
-        console.log('⚠️  No valid LinkedIn session found');
-        console.log('📝 Please upload your cookies via http://localhost:8080');
+  scrapeService.startScraping()
+    .then((result) => {
+      if (result && result.requiresVerification) {
+        console.log('⚠️  Verification required!');
+        console.log('📝 Please use http://localhost:8080 to enter the verification code');
+        return;
+      }
+      
+      if (result && result.success) {
+        console.log('✓ Initial scraping completed successfully');
       }
     })
     .catch((error) => {
-      console.error('Session check error:', error.message);
+      if (error.message === 'VERIFICATION_REQUIRED' || error.message.includes('verification')) {
+        console.log('⚠️  Verification required!');
+        console.log('📝 Please use http://localhost:8080 to enter the verification code');
+      } else {
+        console.error('Initial scraping error:', error.message);
+        console.log('⚠️  Server will continue running');
+      }
     });
 });
 

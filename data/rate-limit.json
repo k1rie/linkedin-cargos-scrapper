@@ -1,0 +1,11 @@
+{
+  "date": "2025-12-26",
+  "viewCount": 21,
+  "lastReset": "2025-12-26T05:02:39.773Z",
+  "backoffUntil": null,
+  "errors": {
+    "403": 0,
+    "429": 0,
+    "network": 0
+  }
+}

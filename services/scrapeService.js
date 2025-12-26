@@ -2,6 +2,17 @@ const hubspotService = require('./hubspotService');
 const clickupService = require('./clickupService');
 const linkedinService = require('./linkedinService');
 
+// ⚠️ Delays para evitar detección
+const DELAYS = linkedinService.DELAYS || {
+  minDelay: 3000,
+  maxDelay: 8000
+};
+
+// Función helper para delay aleatorio entre búsquedas
+const randomDelay = (min, max) => {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+};
+
 const filterResults = (results, companyName, jobTitle) => {
   return results.filter(person => {
     if (!person.title || !person.profileUrl) {
@@ -41,18 +52,7 @@ const startScraping = async () => {
     const loginStatus = await linkedinService.ensureLoggedIn();
     
     if (typeof loginStatus === 'object' && !loginStatus.loggedIn) {
-      if (loginStatus.requiresCookies) {
-        console.log('⚠️  No valid LinkedIn session found');
-        console.log('⚠️  Please upload your cookies via the frontend');
-        console.log('⚠️  The server will continue running');
-        
-        return {
-          success: false,
-          requiresCookies: true,
-          message: 'Please upload LinkedIn cookies via the frontend'
-        };
-      }
-      throw new Error(loginStatus.error || 'Session check failed');
+      throw new Error(loginStatus.error || 'Login failed');
     }
 
     const companies = await hubspotService.getCompaniesFromSegment();
@@ -72,7 +72,37 @@ const startScraping = async () => {
       for (const jobTitle of jobTitles) {
         try {
           console.log(`  Searching for: ${jobTitle.title} at ${company.company}`);
-          const results = await linkedinService.searchPeople(company.company, jobTitle.title);
+          
+          let results;
+          try {
+            results = await linkedinService.searchPeople(company.company, jobTitle.title);
+          } catch (searchError) {
+            if (searchError.message === 'VERIFICATION_REQUIRED') {
+              console.error('⚠️  Verification required!');
+              console.error('📝 Please use the frontend to enter the verification code');
+              console.error('⚠️  Scraping paused until verification is complete');
+              
+              return {
+                success: false,
+                requiresVerification: true,
+                message: 'LinkedIn requires verification code. Please use the frontend to enter it.'
+              };
+            }
+            if (searchError.message && (searchError.message.includes('CAPTCHA') || searchError.message.includes('CAPTCHA_REQUIRED'))) {
+              console.error('⚠️  CAPTCHA detected!');
+              console.error('📝 Options:');
+              console.error('   1. Add CAPTCHA_API_KEY to .env (get it from https://2captcha.com)');
+              console.error('   2. Or run in non-headless mode to solve manually');
+              console.error('⚠️  Scraping paused');
+              
+              return {
+                success: false,
+                requiresCaptcha: true,
+                message: 'CAPTCHA detected. Please configure CAPTCHA_API_KEY or solve manually.'
+              };
+            }
+            throw searchError;
+          }
           
           console.log(`  Found ${results.length} results`);
           
@@ -93,12 +123,19 @@ const startScraping = async () => {
               console.error(`    ✗ Error saving ${person.name}:`, saveError.message);
             }
             
+            // Delay entre guardar cada persona (1 segundo)
             await new Promise(resolve => setTimeout(resolve, 1000));
           }
           
-          await new Promise(resolve => setTimeout(resolve, 2000));
+          // ⚠️ Delay aleatorio entre búsquedas (minDelay - maxDelay)
+          const delayBetweenSearches = randomDelay(DELAYS.minDelay, DELAYS.maxDelay);
+          console.log(`  ⏳ Waiting ${delayBetweenSearches}ms before next search...`);
+          await new Promise(resolve => setTimeout(resolve, delayBetweenSearches));
         } catch (error) {
           console.error(`  Error searching for ${jobTitle.title}:`, error.message);
+          // Delay incluso si hay error
+          const delayOnError = randomDelay(DELAYS.minDelay, DELAYS.maxDelay);
+          await new Promise(resolve => setTimeout(resolve, delayOnError));
         }
       }
       
@@ -110,13 +147,29 @@ const startScraping = async () => {
         console.warn(`Could not update last scrape date for ${company.company}: ${updateError.message}`);
       }
       
-      await new Promise(resolve => setTimeout(resolve, 5000));
+      // ⚠️ Delay aleatorio entre empresas (más largo)
+      const delayBetweenCompanies = randomDelay(DELAYS.minDelay * 2, DELAYS.maxDelay * 2);
+      console.log(`⏳ Waiting ${delayBetweenCompanies}ms before next company...`);
+      await new Promise(resolve => setTimeout(resolve, delayBetweenCompanies));
     }
     
     console.log('Scraping process completed');
+    
+    // Cerrar el navegador compartido al finalizar
+    console.log('🔒 Closing browser session...');
+    await linkedinService.closeSharedBrowser();
+    
     return { success: true };
   } catch (error) {
     console.error('Scraping error:', error);
+    
+    // Cerrar el navegador en caso de error
+    try {
+      await linkedinService.closeSharedBrowser();
+    } catch (e) {
+      // Ignorar errores al cerrar
+    }
+    
     throw error;
   }
 };
