@@ -12,7 +12,8 @@
     "dev": "nodemon server.js",
     "scrape": "node scripts/scrape.js",
     "scrape:schedule": "node scripts/scrape.js --schedule",
-    "scheduler": "node scripts/scheduler.js"
+    "scheduler": "node scripts/scheduler.js",
+    "reset-scrape": "node scripts/reset-last-scrape.js"
   },
   "keywords": ["linkedin", "scraper", "hubspot", "clickup"],
   "author": "",

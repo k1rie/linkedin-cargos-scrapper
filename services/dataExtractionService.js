@@ -290,22 +290,89 @@ const extractSearchResults = async (page) => {
             }
           }
           
-          // Extract title and location using improved selectors
+          // Extract title and location using improved selectors based on LinkedIn's current structure
           let title = '';
           let location = '';
+          let currentPosition = '';
           
-          // Try structured selectors first
-          const titleElement = container.querySelector('.entity-result__primary-subtitle, .search-result__snippets, [class*="subtitle"]');
-          if (titleElement) {
-            title = titleElement.textContent.trim();
+          // Strategy 1: Look for the main title (headline) - usually the first subtitle after name
+          // Selector based on LinkedIn's current structure: p with specific classes containing job title
+          const titleSelectors = [
+            'p._57a34c9c._8d21dacf._0da3dbae._1ae18243._82bb3271', // Main title class pattern
+            'p[class*="_65b5d50b"][class*="cc34e8bb"]:not([class*="_85a7250b"])', // Title pattern
+            '.entity-result__primary-subtitle',
+            '[class*="search-result"] [class*="subtitle"]',
+            'p._57a34c9c._8d21dacf', // Simplified pattern
+          ];
+          
+          for (const selector of titleSelectors) {
+            const elements = container.querySelectorAll(selector);
+            for (const el of elements) {
+              const text = el.textContent.trim();
+              // Skip if it's location or connection count
+              if (text.match(/^\d+\s*(conexión|conexiones|seguidor|seguidores)/i) ||
+                  text.match(/^(Ciudad|México|Argentina|Colombia|España|Bogotá|Buenos Aires|Madrid|Barcelona|Lima|Santiago|Nuevo León)/i) ||
+                  text.includes('Conectar') || text.includes('Enviar mensaje')) {
+                continue;
+              }
+              // If it looks like a job title (has | or common job words)
+              if (text.length > 5 && (text.includes('|') || text.match(/\b(Head|Manager|Director|Coordinator|Lead|Senior|Junior|Analyst|Specialist|Executive|Chief|VP|President)\b/i))) {
+                title = text;
+                break;
+              }
+            }
+            if (title) break;
           }
           
-          const locationElement = container.querySelector('.entity-result__secondary-subtitle, [class*="location"]');
-          if (locationElement) {
-            location = locationElement.textContent.trim();
+          // Strategy 2: Look for "Actual:" prefix (current position)
+          const currentPositionSelectors = [
+            'p._57a34c9c._3f883ddb', // Current position pattern
+            'p[class*="_3f883ddb"]', // Alternative pattern
+            'p:contains("Actual:")',
+          ];
+          
+          for (const selector of currentPositionSelectors) {
+            const elements = container.querySelectorAll(selector);
+            for (const el of elements) {
+              const text = el.textContent.trim();
+              if (text.includes('Actual:') || text.includes('Actual ')) {
+                // Extract job title from "Actual: Job Title at Company"
+                const match = text.match(/Actual[:\s]+(.+?)(?:\s+en\s+|\s+at\s+|$)/i);
+                if (match && match[1]) {
+                  currentPosition = match[1].trim();
+                  // Use current position as title if we don't have one
+                  if (!title) {
+                    title = currentPosition;
+                  }
+                }
+                break;
+              }
+            }
+            if (currentPosition) break;
           }
           
-          // Fallback to text parsing
+          // Strategy 3: Extract location
+          const locationSelectors = [
+            'p._57a34c9c._8d21dacf._65b5d50b._85a7250b', // Location pattern
+            'p[class*="_85a7250b"]', // Location class pattern
+            '.entity-result__secondary-subtitle',
+            'p:contains("México"), p:contains("Argentina"), p:contains("Colombia")',
+          ];
+          
+          for (const selector of locationSelectors) {
+            const elements = container.querySelectorAll(selector);
+            for (const el of elements) {
+              const text = el.textContent.trim();
+              if (text.match(/^(Ciudad de México|México|Argentina|Colombia|España|Bogotá|Buenos Aires|Madrid|Barcelona|Lima|Santiago|Nuevo León|Monterrey|Guadalajara)/i) ||
+                  (text.includes(',') && text.length < 80 && text.match(/[A-Z][a-z]+,\s*[A-Z][a-z]+/))) {
+                location = text;
+                break;
+              }
+            }
+            if (location) break;
+          }
+          
+          // Fallback: Parse all text elements if we still don't have title/location
           if (!title || !location) {
             const allTextElements = container.querySelectorAll('p, div, span');
             const textElements = Array.from(allTextElements);
@@ -314,24 +381,32 @@ const extractSearchResults = async (page) => {
               const text = el.innerText.trim();
               if (!text || text.length < 5) continue;
               
+              // Location detection
               if (!location && (
-                text.match(/^(Ciudad de México|México|Argentina|Colombia|España|Bogotá|Buenos Aires|Madrid|Barcelona|Lima|Santiago)/i) ||
-                (text.includes(',') && text.length < 60 && text.match(/[A-Z][a-z]+,\s*[A-Z][a-z]+/))
+                text.match(/^(Ciudad de México|México|Argentina|Colombia|España|Bogotá|Buenos Aires|Madrid|Barcelona|Lima|Santiago|Nuevo León|Monterrey|Guadalajara)/i) ||
+                (text.includes(',') && text.length < 80 && text.match(/[A-Z][a-z]+,\s*[A-Z][a-z]+/))
               )) {
                 location = text;
                 continue;
               }
               
+              // Title detection - look for job-related keywords
               if (!title && 
-                  text.length > 10 && 
+                  text.length > 5 && 
                   !text.includes('Anterior:') &&
                   !text.match(/^(Ciudad|México|Argentina|Colombia|España)/i) &&
                   !text.match(/^\d+\s*(conexión|conexiones|seguidor|seguidores)/i) &&
                   !text.match(/^Conectar|^Enviar mensaje/i) &&
-                  text !== location) {
+                  text !== location &&
+                  (text.includes('|') || text.match(/\b(Head|Manager|Director|Coordinator|Lead|Senior|Junior|Analyst|Specialist|Executive|Chief|VP|President|Coordinador|Gerente|Director|Líder)\b/i))) {
                 title = text;
               }
             }
+          }
+          
+          // Combine title and current position if both exist
+          if (title && currentPosition && title !== currentPosition) {
+            title = `${title} | ${currentPosition}`;
           }
           
           if (name && profileUrl) {

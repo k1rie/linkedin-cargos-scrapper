@@ -22,23 +22,49 @@ const filterResults = (results, companyName, jobTitle) => {
     const personTitle = person.title.toLowerCase();
     const searchJobTitle = jobTitle.toLowerCase();
     
+    // Normalizar títulos: remover caracteres especiales y normalizar espacios
+    const normalizeTitle = (title) => {
+      return title
+        .toLowerCase()
+        .replace(/\|/g, ' ') // Reemplazar | con espacio
+        .replace(/[^\w\s]/g, ' ') // Remover caracteres especiales
+        .replace(/\s+/g, ' ') // Normalizar espacios
+        .trim();
+    };
+    
+    const normalizedPersonTitle = normalizeTitle(personTitle);
+    const normalizedSearchTitle = normalizeTitle(searchJobTitle);
+    
     // Extraer palabras clave del cargo (ignorar artículos y palabras muy cortas)
-    const stopWords = ['de', 'del', 'la', 'el', 'en', 'y', 'o', 'a', 'al', 'los', 'las', 'un', 'una'];
-    const jobTitleWords = searchJobTitle
+    const stopWords = ['de', 'del', 'la', 'el', 'en', 'y', 'o', 'a', 'al', 'los', 'las', 'un', 'una', 'el', 'en', 'con', 'por', 'para'];
+    const jobTitleWords = normalizedSearchTitle
       .split(/\s+/)
       .filter(w => w.length > 2 && !stopWords.includes(w));
     
     // Verificar coincidencia con el cargo
     // LinkedIn ya filtra por empresa, solo necesitamos verificar el cargo
     let titleMatch = false;
+    
     if (jobTitleWords.length > 0) {
-      const matchingWords = jobTitleWords.filter(word => personTitle.includes(word));
-      // Si hay al menos 1 palabra clave del cargo (más flexible)
-      titleMatch = matchingWords.length >= 1 || 
-                  personTitle.includes(searchJobTitle) ||
-                  searchJobTitle.includes(personTitle.split('|')[0].trim().toLowerCase());
+      // Contar cuántas palabras clave coinciden
+      const matchingWords = jobTitleWords.filter(word => {
+        // Buscar palabra completa o como parte de otra palabra relevante
+        return normalizedPersonTitle.includes(word) || 
+               normalizedPersonTitle.split(' ').some(t => t.startsWith(word) || word.startsWith(t));
+      });
+      
+      // Si coincide al menos el 50% de las palabras clave importantes (mínimo 1)
+      const matchRatio = matchingWords.length / jobTitleWords.length;
+      const minMatches = Math.max(1, Math.ceil(jobTitleWords.length * 0.5));
+      
+      titleMatch = matchingWords.length >= minMatches || 
+                  matchRatio >= 0.5 ||
+                  normalizedPersonTitle.includes(normalizedSearchTitle) ||
+                  normalizedSearchTitle.includes(normalizedPersonTitle.split('|')[0].trim());
     } else {
-      titleMatch = personTitle.includes(searchJobTitle) || searchJobTitle.includes(personTitle);
+      // Si el título de búsqueda es muy corto, hacer match exacto o parcial
+      titleMatch = normalizedPersonTitle.includes(normalizedSearchTitle) || 
+                  normalizedSearchTitle.includes(normalizedPersonTitle);
     }
     
     return titleMatch;
@@ -74,9 +100,22 @@ const startScraping = async () => {
           console.log(`  Searching for: ${jobTitle.title} at ${company.company}`);
           
           let results;
+          let dailyLimitReached = false;
           try {
             results = await linkedinService.searchPeople(company.company, jobTitle.title);
           } catch (searchError) {
+            // Check for daily limit reached
+            if (searchError.message && (searchError.message.includes('Daily limit reached') || 
+                searchError.message.includes('Daily view limit reached'))) {
+              console.error('\n⚠️  Daily limit reached!');
+              console.error(`   ${searchError.message}`);
+              console.error('🛑 Stopping scraping process...');
+              console.error('💡 The scraping will resume tomorrow or increase DAILY_VIEW_LIMIT in .env\n');
+              
+              dailyLimitReached = true;
+              results = []; // Empty results to continue gracefully
+            }
+            
             if (searchError.message === 'VERIFICATION_REQUIRED') {
               console.error('⚠️  Verification required!');
               console.error('📝 Please use the frontend to enter the verification code');
@@ -101,7 +140,19 @@ const startScraping = async () => {
                 message: 'CAPTCHA detected. Please configure CAPTCHA_API_KEY or solve manually.'
               };
             }
-            throw searchError;
+            if (!dailyLimitReached) {
+              throw searchError;
+            }
+          }
+          
+          // Stop if daily limit reached
+          if (dailyLimitReached) {
+            await linkedinService.closeSharedBrowser();
+            return {
+              success: false,
+              dailyLimitReached: true,
+              message: 'Daily view limit reached. Scraping stopped.'
+            };
           }
           
           console.log(`  Found ${results.length} results`);
