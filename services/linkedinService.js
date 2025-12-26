@@ -988,12 +988,12 @@ const searchPeople = async (companyName, jobTitle) => {
   searchCount++;
   
   try {
-    // Búsqueda con comillas solo en la empresa para ser exacto, cargo sin comillas para flexibilidad
-    const searchQuery = `"${companyName}" ${jobTitle}`;
+    // Búsqueda con comillas en empresa y cargo para ser más estricto
+    const searchQuery = `"${companyName}" "${jobTitle}"`;
     const searchUrl = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(searchQuery)}`;
     
     loggerService.info('Starting search', { searchCount, companyName, jobTitle, url: searchUrl });
-    console.log(`  🔍 Search #${searchCount}: "${companyName}" ${jobTitle}`);
+    console.log(`  🔍 Search #${searchCount}: "${companyName}" "${jobTitle}"`);
     
     // ⚠️ Cada 5 búsquedas, visitar el feed (comportamiento humano)
     if (searchCount % 5 === 0) {
