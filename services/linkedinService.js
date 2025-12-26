@@ -1067,29 +1067,85 @@ const searchPeople = async (companyName, jobTitle) => {
       throw error;
     }
     
-    // ⚠️ Delay después de cargar la búsqueda (postSearchDelay)
-    await page.waitForTimeout(DELAYS.postSearchDelay);
-    
-    // ⚠️ Simular scroll (comportamiento humano)
-    await page.evaluate(() => {
-      window.scrollBy(0, Math.random() * 500 + 300);
-    });
-    await page.waitForTimeout(randomDelay(500, 1000));
-    
-    // Esperar a que aparezcan links a perfiles
+    // ⚠️ Esperar a que la página cargue completamente
+    // Estrategia múltiple: esperar networkidle, luego selectores específicos, luego scroll
     try {
-      await page.waitForSelector('a[href*="/in/"]', { timeout: 20000 });
-      // Delay adicional después de que aparezcan los resultados (simular lectura humana)
-      await page.waitForTimeout(randomDelay(1000, 2000));
-    } catch (selectorError) {
-      loggerService.warn('No profile links found in search results', { url: searchUrl });
-      console.warn(`No profile links found, trying to extract results anyway...`);
-      // Delay incluso si no hay resultados
-      await page.waitForTimeout(randomDelay(1000, 2000));
+      // Esperar a que la red esté inactiva (página cargada)
+      await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {
+        loggerService.debug('Network idle timeout, continuing anyway');
+      });
+      
+      // Esperar un poco más para que JavaScript renderice
+      await page.waitForTimeout(2000);
+      
+      // Intentar esperar por selectores específicos de resultados
+      const resultSelectors = [
+        'a[href*="/in/"]',
+        '[role="listitem"]',
+        '.reusable-search__result-container',
+        '[class*="search-result"]',
+        'ul[class*="results"]',
+      ];
+      
+      let foundResults = false;
+      for (const selector of resultSelectors) {
+        try {
+          await page.waitForSelector(selector, { timeout: 5000 });
+          foundResults = true;
+          break;
+        } catch (e) {
+          continue;
+        }
+      }
+      
+      // Si no encontramos selectores específicos, verificar si hay contenido en la página
+      if (!foundResults) {
+        const hasContent = await page.evaluate(() => {
+          // Verificar si hay elementos que sugieren que la página cargó
+          return document.body.textContent.length > 1000 || 
+                 document.querySelectorAll('a, div, p').length > 50;
+        });
+        
+        if (hasContent) {
+          loggerService.debug('Page has content, attempting extraction even without specific selectors');
+          foundResults = true;
+        }
+      }
+      
+      // Scroll para cargar más resultados (comportamiento humano)
+      await page.evaluate(() => {
+        // Scroll suave hacia abajo para cargar contenido lazy-loaded
+        window.scrollBy(0, 500);
+      });
+      await page.waitForTimeout(1500);
+      
+      // Scroll un poco más
+      await page.evaluate(() => {
+        window.scrollBy(0, 300);
+      });
+      await page.waitForTimeout(1000);
+      
+      // Scroll de vuelta arriba para tener mejor vista
+      await page.evaluate(() => {
+        window.scrollTo(0, 0);
+      });
+      await page.waitForTimeout(500);
+      
+      loggerService.debug('Page loaded and scrolled', { foundResults });
+    } catch (waitError) {
+      loggerService.warn('Error waiting for page load', { error: waitError.message });
+      // Continuar de todas formas - intentaremos extraer lo que haya
     }
     
-    // Use enhanced data extraction service
-    const results = await dataExtractionService.extractSearchResults(page);
+    // Use enhanced data extraction service with Cheerio
+    let results = await dataExtractionService.extractSearchResults(page);
+    
+    // Si Cheerio no encontró resultados, intentar con el método fallback
+    if (!results || results.length === 0) {
+      loggerService.warn('Cheerio extraction returned no results, trying fallback method');
+      console.log('⚠️  Cheerio no encontró resultados, intentando método alternativo...');
+      results = await dataExtractionService.extractSearchResultsFallback(page);
+    }
     
     loggerService.info('Search completed', { 
       companyName, 

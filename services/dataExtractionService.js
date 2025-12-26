@@ -1,7 +1,9 @@
 /**
  * DATA EXTRACTION LAYER
- * JSON-LD parsing and CSS selector fallback
+ * JSON-LD parsing and CSS selector fallback with Cheerio
  */
+
+const cheerio = require('cheerio');
 
 /**
  * Extract data from JSON-LD script tags
@@ -209,37 +211,288 @@ const extractProfileData = async (page, profileUrl) => {
 };
 
 /**
- * Extract search results from LinkedIn search page
+ * Extract search results from LinkedIn search page using Cheerio
+ */
+const extractSearchResultsWithCheerio = async (page) => {
+  try {
+    // Obtener el HTML de la página
+    const html = await page.content();
+    const $ = cheerio.load(html);
+    
+    const people = [];
+    const seenUrls = new Set();
+    
+    // Estrategia 1: Buscar todos los links a perfiles
+    const profileLinks = $('a[href*="/in/"]').filter((i, el) => {
+      const href = $(el).attr('href');
+      return href && href.includes('/in/') && !href.includes('/company/');
+    });
+    
+    console.log(`Found ${profileLinks.length} profile links`);
+    
+    profileLinks.each((i, linkEl) => {
+      try {
+        const $link = $(linkEl);
+        const profileUrl = $link.attr('href');
+        
+        if (!profileUrl || seenUrls.has(profileUrl)) return;
+        
+        // Buscar el contenedor padre más relevante
+        const $container = $link.closest('[role="listitem"], li, div[class*="search-result"], div[class*="entity-result"]') || 
+                          $link.parent().parent().parent();
+        
+        if (!$container || $container.length === 0) return;
+        
+        const containerText = $container.text();
+        
+        // Verificar que no sea navegación
+        if (containerText.includes('Sign in') || containerText.includes('Join now')) return;
+        
+        // Extraer información del contenedor
+        let name = '';
+        let title = '';
+        let location = '';
+        let currentPosition = '';
+        let company = '';
+        
+        // Estrategia de extracción basada en texto
+        const lines = containerText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+        
+        // Debug: mostrar las primeras líneas
+        if (lines.length > 0) {
+          console.log(`Container lines (first 5):`, lines.slice(0, 5));
+        }
+        
+        // El primer elemento suele ser el nombre (o "LinkedIn Member")
+        if (lines.length > 0) {
+          name = lines[0];
+          // Si es "LinkedIn Member", mantenerlo pero intentar extraer más info
+          if (name === 'LinkedIn Member') {
+            const linkText = $link.text().trim();
+            if (linkText && linkText !== 'LinkedIn Member' && linkText.length > 2) {
+              name = linkText;
+            }
+            // Si aún es "LinkedIn Member", buscar en líneas siguientes
+            if (name === 'LinkedIn Member' && lines.length > 1) {
+              // A veces el nombre real está después
+              for (let i = 1; i < Math.min(3, lines.length); i++) {
+                const line = lines[i];
+                // Si la línea parece un nombre (no tiene keywords de cargo)
+                if (line.length > 2 && line.length < 50 && 
+                    !line.match(/Manager|Director|Coordinator|Engineer|3rd\+|Message|Conectar/i)) {
+                  name = line;
+                  break;
+                }
+              }
+            }
+          }
+        }
+        
+        // Buscar título/posición actual
+        // Buscar líneas que contengan palabras clave de cargos
+        const jobKeywords = ['Manager', 'Director', 'Coordinator', 'Coordinador', 'Head', 'Lead', 'Senior', 
+                            'Junior', 'Analyst', 'Specialist', 'Executive', 'Chief', 'VP', 'President',
+                            'Engineer', 'Developer', 'Designer', 'Jefe', 'Gerente', 'Asistente',
+                            'Planner', 'Project', 'Product', 'Business', 'Events', 'Eventos', 'Officer',
+                            'Supervisor', 'Administrator', 'Administrador', 'Consultant', 'Consultor'];
+        
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i];
+          
+          // Skip líneas obvias que no son títulos
+          if (line.includes('conexión') || line.includes('seguidor') || 
+              line.includes('Message') || line.includes('Conectar') ||
+              line.match(/^\d+\s*(conexión|seguidor)/i) ||
+              line.match(/^3rd\+|2nd|1st/)) {
+            continue;
+          }
+          
+          // Buscar "Current:" o "Actual:"
+          if (line.match(/^(Current|Actual):/i)) {
+            currentPosition = line.replace(/^(Current|Actual):\s*/i, '').trim();
+            
+            // Extraer el cargo y la empresa
+            // Formato: "Jefe de eventos y reuniones at Leonardo Royal Barcelona Hotel Fira"
+            // Formato: "Community manager y creador de contenido at Autónomo"
+            const atMatch = currentPosition.match(/^(.+?)\s+(?:at|en)\s+(.+)$/i);
+            if (atMatch) {
+              title = atMatch[1].trim();
+              company = atMatch[2].trim();
+            } else {
+              // Si no hay "at/en", toda la línea es el título
+              title = currentPosition;
+            }
+            break;
+          }
+          
+          // Buscar "Past:" (saltar, pero extraer si menciona el cargo buscado)
+          if (line.match(/^(Past|Pasado):/i)) {
+            const pastPosition = line.replace(/^(Past|Pasado):\s*/i, '').trim();
+            // Solo usar Past si no tenemos título aún y contiene keywords relevantes
+            if (!title && jobKeywords.some(keyword => pastPosition.toLowerCase().includes(keyword.toLowerCase()))) {
+              const atMatch = pastPosition.match(/^(.+?)\s+(?:at|en)\s+(.+)$/i);
+              if (atMatch) {
+                title = atMatch[1].trim() + ' (Past)';
+                company = atMatch[2].trim();
+              }
+            }
+            continue;
+          }
+          
+          // Si la línea contiene palabras clave de cargo y no es muy larga
+          if (line.length < 150 && jobKeywords.some(keyword => line.toLowerCase().includes(keyword.toLowerCase()))) {
+            // Verificar que no sea una ubicación
+            if (!line.match(/Greater|Metropolitan|Area|Área/i)) {
+              title = line;
+              break;
+            }
+          }
+        }
+        
+        // Buscar ubicación (suele contener nombres de ciudades/países)
+        const locationKeywords = ['México', 'Argentina', 'Colombia', 'España', 'Chile', 'Perú',
+                                 'Bogotá', 'Buenos Aires', 'Madrid', 'Barcelona', 'Lima', 'Santiago',
+                                 'Ciudad', 'Metropolitan', 'Area', 'Área', 'Greater'];
+        
+        for (const line of lines) {
+          if (locationKeywords.some(keyword => line.includes(keyword)) && 
+              !line.match(/^(Current|Actual|Past|Pasado):/i) &&
+              line.length < 100) {
+            location = line;
+            break;
+          }
+        }
+        
+        // Si encontramos un perfil válido
+        if (profileUrl && (name || title)) {
+          seenUrls.add(profileUrl);
+          
+          // Limpiar nombre
+          name = name.replace(/•.*$/, '').replace(/·.*$/, '').trim();
+          
+          // Construir URL completa si es relativa
+          const fullUrl = profileUrl.startsWith('http') ? 
+                         profileUrl : 
+                         `https://www.linkedin.com${profileUrl}`;
+          
+          people.push({
+            name: name || 'LinkedIn Member',
+            profileUrl: fullUrl,
+            title: title || '',
+            location: location || '',
+            company: company || '', // Empresa extraída de "Current: X at Y"
+            rawText: containerText.substring(0, 300), // Para debugging
+          });
+          
+          console.log(`Extracted: ${name} - ${title}`);
+        }
+      } catch (error) {
+        console.error('Error extracting individual result:', error.message);
+      }
+    });
+    
+    return people;
+  } catch (error) {
+    console.error('Error in Cheerio extraction:', error.message);
+    return [];
+  }
+};
+
+/**
+ * Extract search results from LinkedIn search page (fallback method)
  */
 const extractSearchResults = async (page) => {
   try {
+    // Esperar un poco más para asegurar que el contenido esté renderizado
+    await page.waitForTimeout(1000);
+    
     const results = await page.evaluate(() => {
       const people = [];
       
-      // Multiple selector strategies
+      // Verificar si hay mensaje de "No results found"
+      const noResultsMessage = document.body.textContent.includes('No results found') ||
+                               document.body.textContent.includes('No se encontraron resultados');
+      
+      // Aún así intentar extraer si hay links a perfiles
+      // Multiple selector strategies - más agresivo
       const selectors = [
         'a[href*="/in/"]',
+        '[role="listitem"]',
         '[class*="search-result"]',
         '[data-view-name*="search"]',
         'li[class*="result"]',
         '.reusable-search__result-container',
+        '[class*="_3295e248"]', // Clase común en resultados de LinkedIn
+        '[class*="entity-result"]',
       ];
       
       let resultElements = [];
       for (const sel of selectors) {
-        const elements = document.querySelectorAll(sel);
-        resultElements = Array.from(elements).filter(el => {
-          const href = el.getAttribute('href') || el.querySelector('a')?.getAttribute('href') || '';
-          return href.includes('/in/') && el.textContent.trim().length > 0;
-        });
-        if (resultElements.length > 0) break;
+        try {
+          const elements = document.querySelectorAll(sel);
+          resultElements = Array.from(elements).filter(el => {
+            const href = el.getAttribute('href') || el.querySelector('a')?.getAttribute('href') || '';
+            const hasProfileLink = href.includes('/in/');
+            const hasContent = el.textContent.trim().length > 10; // Al menos algo de contenido
+            return hasProfileLink && hasContent;
+          });
+          if (resultElements.length > 0) break;
+        } catch (e) {
+          continue;
+        }
       }
       
+      // Si aún no hay resultados, buscar todos los links a perfiles y sus contenedores
       if (resultElements.length === 0) {
         const allLinks = document.querySelectorAll('a[href*="/in/"]');
         resultElements = Array.from(allLinks).filter(link => {
-          const container = link.closest('[class*="result"], [class*="search"], li, div[role="listitem"]');
-          return container && link.textContent.trim().length > 0;
+          // Verificar que el link tenga contenido relevante
+          const linkText = link.textContent.trim();
+          const hasName = linkText.length > 2 && linkText.length < 100; // Probablemente un nombre
+          
+          // Buscar contenedor padre que tenga más información
+          const container = link.closest('[class*="result"], [class*="search"], li, div[role="listitem"], div[class*="_3295e248"], div[class*="entity-result"]') ||
+                           link.parentElement?.parentElement;
+          
+          return container && hasName && container.textContent.trim().length > 20;
+        });
+      }
+      
+      // Si aún no hay resultados pero hay contenido en la página, intentar extraer de cualquier contenedor
+      if (resultElements.length === 0 && !noResultsMessage) {
+        // Buscar cualquier div que contenga un link a perfil y tenga estructura de resultado
+        const allDivs = document.querySelectorAll('div[class*="_3295e248"], div[role="listitem"], div[class*="entity-result"]');
+        resultElements = Array.from(allDivs).filter(div => {
+          const link = div.querySelector('a[href*="/in/"]');
+          return link && div.textContent.trim().length > 30;
+        });
+      }
+      
+      // Última estrategia: buscar cualquier link a perfil y construir resultado desde ahí
+      if (resultElements.length === 0) {
+        const allProfileLinks = document.querySelectorAll('a[href*="/in/"]');
+        const uniqueLinks = new Set();
+        resultElements = Array.from(allProfileLinks).filter(link => {
+          const href = link.href || link.getAttribute('href');
+          if (!href || uniqueLinks.has(href)) return false;
+          
+          // Verificar que no sea un link de navegación o footer
+          const isNavigationLink = link.closest('nav, footer, header, [role="navigation"]');
+          if (isNavigationLink) return false;
+          
+          // Verificar que tenga contenido de perfil (nombre)
+          const linkText = link.textContent.trim();
+          const looksLikeName = linkText.length > 2 && 
+                               linkText.length < 100 && 
+                               !linkText.includes('LinkedIn') &&
+                               !linkText.includes('Sign') &&
+                               !linkText.match(/^\d+$/); // No es solo un número
+          
+          if (looksLikeName) {
+            uniqueLinks.add(href);
+            return true;
+          }
+          return false;
         });
       }
       
@@ -249,10 +502,23 @@ const extractSearchResults = async (page) => {
         try {
           let container = element;
           if (element.tagName !== 'A' || !element.href.includes('/in/')) {
+            // Buscar contenedor más cercano con estructura de resultado
             container = element.closest('a[href*="/in/"]') || 
                        element.closest('[role="listitem"]') ||
+                       element.closest('[class*="_3295e248"]') ||
+                       element.closest('[class*="entity-result"]') ||
                        element.closest('[class*="result"]') ||
+                       element.closest('div[class*="_596d9cd3"]') || // Contenedor común de resultados
+                       element.parentElement?.parentElement ||
                        element.parentElement;
+          }
+          
+          // Si el elemento es directamente un link, usar su contenedor padre para obtener más contexto
+          if (container.tagName === 'A' && container.href.includes('/in/')) {
+            const parentContainer = container.closest('[role="listitem"], div[class*="_3295e248"], div[class*="entity-result"], div[class*="_596d9cd3"], div[class*="search-result"]');
+            if (parentContainer && parentContainer !== container) {
+              container = parentContainer;
+            }
           }
           
           const containerId = container.getAttribute('href') || 
@@ -268,8 +534,11 @@ const extractSearchResults = async (page) => {
           if (container.tagName === 'A' && container.href.includes('/in/')) {
             profileLink = container;
           } else {
+            // Buscar link de perfil con múltiples estrategias
             profileLink = container.querySelector('a[href*="/in/"]') ||
-                         container.querySelector('a[data-view-name="search-result-lockup-title"]');
+                         container.querySelector('a[data-view-name="search-result-lockup-title"]') ||
+                         container.querySelector('a[data-view-name*="lockup-title"]') ||
+                         container.querySelector('a._52c6d0b5'); // Clase común de links de perfil
           }
           
           if (!profileLink) return;
@@ -446,6 +715,7 @@ module.exports = {
   extractJSONLD,
   extractWithSelectors,
   extractProfileData,
-  extractSearchResults,
+  extractSearchResults: extractSearchResultsWithCheerio, // Usar Cheerio como método principal
+  extractSearchResultsFallback: extractSearchResults, // Mantener el método anterior como fallback
 };
 
