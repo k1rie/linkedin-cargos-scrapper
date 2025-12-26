@@ -455,7 +455,7 @@ const DELAYS = {
 const randomDelay = (min, max) => {
   if (min !== undefined && max !== undefined) {
     // Use provided min/max for specific delays
-    return Math.floor(Math.random() * (max - min + 1)) + min;
+  return Math.floor(Math.random() * (max - min + 1)) + min;
   }
   // Use rateLimitService for default delays between searches
   return rateLimitService.getRandomDelay();
@@ -930,8 +930,8 @@ const getSharedBrowser = async () => {
     ]);
     
     // Validar cookie navegando al feed
-    await page.goto('https://www.linkedin.com/feed', { 
-      waitUntil: 'domcontentloaded',
+  await page.goto('https://www.linkedin.com/feed', { 
+    waitUntil: 'domcontentloaded',
       timeout: 30000 
     });
     
@@ -944,7 +944,7 @@ const getSharedBrowser = async () => {
     }
     
     console.log('✅ Cookie validated successfully');
-    await page.waitForTimeout(randomDelay(2000, 4000)); // Simular lectura del feed
+  await page.waitForTimeout(randomDelay(2000, 4000)); // Simular lectura del feed
   } catch (error) {
     await browser.close();
     if (error.message.includes('Cookie validation failed')) {
@@ -988,7 +988,8 @@ const searchPeople = async (companyName, jobTitle) => {
   searchCount++;
   
   try {
-    const searchQuery = `"${companyName}" "${jobTitle}"`;
+    // Búsqueda sin comillas para resultados más amplios
+    const searchQuery = `${companyName} ${jobTitle}`;
     const searchUrl = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(searchQuery)}`;
     
     loggerService.info('Starting search', { searchCount, companyName, jobTitle, url: searchUrl });
@@ -1009,10 +1010,10 @@ const searchPeople = async (companyName, jobTitle) => {
     let response;
     try {
       response = await page.goto(searchUrl, { 
-        waitUntil: 'domcontentloaded',
-        timeout: 60000 
-      });
-      
+      waitUntil: 'domcontentloaded',
+      timeout: 60000 
+    });
+    
       // Check response status
       const status = response?.status();
       if (status === 403) {
@@ -1094,8 +1095,8 @@ const searchPeople = async (companyName, jobTitle) => {
           foundResults = true;
           break;
         } catch (e) {
-          continue;
-        }
+              continue;
+            }
       }
       
       // Si no encontramos selectores específicos, verificar si hay contenido en la página

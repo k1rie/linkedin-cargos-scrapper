@@ -14,9 +14,19 @@ const randomDelay = (min, max) => {
 };
 
 const filterResults = (results, companyName, jobTitle) => {
-  return results.filter(person => {
-    if (!person.title || !person.profileUrl) {
+  console.log(`\n  🔍 Filtering ${results.length} results for: "${jobTitle}"`);
+  
+  const filtered = results.filter(person => {
+    // Si no tiene URL, descartar
+    if (!person.profileUrl) {
+      console.log(`    ❌ Skipped (no URL): ${person.name}`);
       return false;
+    }
+    
+    // Si no tiene título, pero tiene nombre, aceptar (puede ser útil)
+    if (!person.title) {
+      console.log(`    ⚠️  No title but has profile: ${person.name} - ${person.profileUrl}`);
+      return true; // Aceptar de todas formas
     }
     
     const personTitle = person.title.toLowerCase();
@@ -27,7 +37,7 @@ const filterResults = (results, companyName, jobTitle) => {
       return title
         .toLowerCase()
         .replace(/\|/g, ' ') // Reemplazar | con espacio
-        .replace(/[^\w\s]/g, ' ') // Remover caracteres especiales
+        .replace(/[^\w\sáéíóúñü]/g, ' ') // Remover caracteres especiales pero mantener acentos
         .replace(/\s+/g, ' ') // Normalizar espacios
         .trim();
     };
@@ -36,39 +46,65 @@ const filterResults = (results, companyName, jobTitle) => {
     const normalizedSearchTitle = normalizeTitle(searchJobTitle);
     
     // Extraer palabras clave del cargo (ignorar artículos y palabras muy cortas)
-    const stopWords = ['de', 'del', 'la', 'el', 'en', 'y', 'o', 'a', 'al', 'los', 'las', 'un', 'una', 'el', 'en', 'con', 'por', 'para'];
+    const stopWords = ['de', 'del', 'la', 'el', 'en', 'y', 'o', 'a', 'al', 'los', 'las', 'un', 'una', 'con', 'por', 'para'];
     const jobTitleWords = normalizedSearchTitle
       .split(/\s+/)
       .filter(w => w.length > 2 && !stopWords.includes(w));
     
     // Verificar coincidencia con el cargo
-    // LinkedIn ya filtra por empresa, solo necesitamos verificar el cargo
     let titleMatch = false;
+    let matchReason = '';
     
     if (jobTitleWords.length > 0) {
       // Contar cuántas palabras clave coinciden
       const matchingWords = jobTitleWords.filter(word => {
         // Buscar palabra completa o como parte de otra palabra relevante
         return normalizedPersonTitle.includes(word) || 
-               normalizedPersonTitle.split(' ').some(t => t.startsWith(word) || word.startsWith(t));
+               normalizedPersonTitle.split(' ').some(t => 
+                 t.startsWith(word) || 
+                 word.startsWith(t) ||
+                 (t.length > 3 && word.length > 3 && (t.includes(word) || word.includes(t)))
+               );
       });
       
       // Si coincide al menos el 50% de las palabras clave importantes (mínimo 1)
       const matchRatio = matchingWords.length / jobTitleWords.length;
       const minMatches = Math.max(1, Math.ceil(jobTitleWords.length * 0.5));
       
-      titleMatch = matchingWords.length >= minMatches || 
-                  matchRatio >= 0.5 ||
-                  normalizedPersonTitle.includes(normalizedSearchTitle) ||
-                  normalizedSearchTitle.includes(normalizedPersonTitle.split('|')[0].trim());
+      if (matchingWords.length >= minMatches) {
+        titleMatch = true;
+        matchReason = `${matchingWords.length}/${jobTitleWords.length} keywords match`;
+      } else if (normalizedPersonTitle.includes(normalizedSearchTitle)) {
+        titleMatch = true;
+        matchReason = 'exact phrase match';
+      } else if (normalizedSearchTitle.includes(normalizedPersonTitle.split('|')[0].trim())) {
+        titleMatch = true;
+        matchReason = 'reverse match';
+      }
+      
+      // Logging detallado
+      if (titleMatch) {
+        console.log(`    ✅ Match (${matchReason}): ${person.name} - "${person.title}"`);
+      } else {
+        console.log(`    ❌ No match: ${person.name} - "${person.title}" (keywords: ${matchingWords.join(', ')} vs ${jobTitleWords.join(', ')})`);
+      }
     } else {
       // Si el título de búsqueda es muy corto, hacer match exacto o parcial
       titleMatch = normalizedPersonTitle.includes(normalizedSearchTitle) || 
                   normalizedSearchTitle.includes(normalizedPersonTitle);
+      
+      if (titleMatch) {
+        console.log(`    ✅ Match (partial): ${person.name} - "${person.title}"`);
+      } else {
+        console.log(`    ❌ No match: ${person.name} - "${person.title}"`);
+      }
     }
     
     return titleMatch;
   });
+  
+  console.log(`  📊 Filtered: ${filtered.length}/${results.length} results match\n`);
+  return filtered;
 };
 
 const startScraping = async () => {

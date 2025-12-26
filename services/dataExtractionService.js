@@ -256,11 +256,77 @@ const extractSearchResultsWithCheerio = async (page) => {
         let company = '';
         
         // Estrategia de extracción basada en texto
-        const lines = containerText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+        // El texto puede venir todo junto, necesitamos parsearlo mejor
+        let lines = containerText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
         
-        // Debug: mostrar las primeras líneas
+        // Si hay muy pocas líneas, intentar dividir por patrones comunes
+        if (lines.length <= 2) {
+          // Buscar patrones como "Nombre • 3rd+TítuloUbicaciónCurrent:"
+          const text = containerText.trim();
+          const parts = [];
+          
+          // Extraer nombre (antes de • o 3rd+ o 1st o 2nd)
+          const nameMatch = text.match(/^(.+?)(?:\s*•\s*|\s*3rd\+|\s*2nd|\s*1st)/);
+          if (nameMatch) {
+            parts.push(nameMatch[1].trim());
+            
+            // Extraer el resto del texto después del separador
+            const separatorMatch = text.match(/(?:\s*•\s*|\s*3rd\+|\s*2nd|\s*1st)/);
+            if (separatorMatch) {
+              const afterSeparator = text.substring(nameMatch[0].length).trim();
+              
+              // Buscar Current: o Actual: o Past:
+              const currentMatch = afterSeparator.match(/(Current|Actual):\s*(.+?)(?=\s*Past:|$)/i);
+              const pastMatch = afterSeparator.match(/(Past|Pasado):\s*(.+?)$/i);
+              
+              if (currentMatch || pastMatch) {
+                // Extraer lo que está antes de Current/Past (título y ubicación)
+                const beforePosition = afterSeparator.split(/(?:Current|Actual|Past|Pasado):/i)[0].trim();
+                
+                if (beforePosition) {
+                  // Buscar ubicación (contiene nombres de lugares conocidos)
+                  const locationMatch = beforePosition.match(/(Greater|Metropolitan|Area|Área|México|Argentina|Colombia|España|Chile|Perú|Bogotá|Buenos Aires|Madrid|Barcelona|Lima|Santiago|Córdoba|Granada|Andalusia|Ecuador|Nuevo León|Ciudad de México|CDMX)[\w\s,]*$/i);
+                  
+                  if (locationMatch) {
+                    const beforeLocation = beforePosition.substring(0, locationMatch.index).trim();
+                    if (beforeLocation) parts.push(beforeLocation); // Título
+                    parts.push(locationMatch[0].trim()); // Ubicación
+                  } else {
+                    // No se encontró ubicación, todo es título
+                    parts.push(beforePosition);
+                  }
+                }
+                
+                // Agregar Current: o Past:
+                if (currentMatch) parts.push(currentMatch[0].trim());
+                if (pastMatch && !currentMatch) parts.push(pastMatch[0].trim());
+              } else {
+                // No hay Current/Past, intentar dividir por ubicación
+                const locationMatch = afterSeparator.match(/(Greater|Metropolitan|Area|Área|México|Argentina|Colombia|España|Chile|Perú|Bogotá|Buenos Aires|Madrid|Barcelona|Lima|Santiago|Córdoba|Granada|Andalusia|Ecuador|Nuevo León|Ciudad de México|CDMX)[\w\s,]*$/i);
+                
+                if (locationMatch) {
+                  const beforeLocation = afterSeparator.substring(0, locationMatch.index).trim();
+                  if (beforeLocation) parts.push(beforeLocation); // Título
+                  parts.push(locationMatch[0].trim()); // Ubicación
+                } else if (afterSeparator) {
+                  // Todo el texto restante es el título
+                  parts.push(afterSeparator);
+                }
+              }
+            }
+          } else {
+            // No se pudo extraer nombre con el patrón, usar el texto completo
+            if (text) parts.push(text);
+          }
+          
+          if (parts.length > 0) {
+            lines = parts;
+          }
+        }
+        
+        // Debug: mostrar las líneas parseadas
         if (lines.length > 0) {
-          console.log(`Container lines (first 5):`, lines.slice(0, 5));
+          console.log(`Container lines (parsed):`, lines.slice(0, 5));
         }
         
         // El primer elemento suele ser el nombre (o "LinkedIn Member")
@@ -369,6 +435,12 @@ const extractSearchResultsWithCheerio = async (page) => {
           
           // Limpiar nombre
           name = name.replace(/•.*$/, '').replace(/·.*$/, '').trim();
+          
+          // Limpiar título (remover 3rd+, 2nd, 1st, etc.)
+          title = title.replace(/^(3rd\+|2nd|1st)\s*/i, '').trim();
+          
+          // Limpiar empresa (remover "X followers", "X conexiones", etc.)
+          company = company.replace(/\d+\s*(followers?|conexiones?|seguidores?)/gi, '').trim();
           
           // Construir URL completa si es relativa
           const fullUrl = profileUrl.startsWith('http') ? 
