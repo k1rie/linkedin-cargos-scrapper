@@ -933,8 +933,8 @@ const getSharedBrowser = async () => {
   await page.goto('https://www.linkedin.com/feed', { 
     waitUntil: 'domcontentloaded',
       timeout: 30000 
-    });
-    
+  });
+  
     const currentUrl = page.url();
     const isLoggedIn = !currentUrl.includes('/login') && !currentUrl.includes('/uas/login');
     

@@ -214,7 +214,7 @@ const startScraping = async () => {
               };
             }
             if (!dailyLimitReached) {
-              throw searchError;
+            throw searchError;
             }
           }
           
@@ -235,13 +235,15 @@ const startScraping = async () => {
           
           for (const person of filteredResults) {
             try {
-              const exists = await clickupService.checkPersonExists(person.profileUrl, jobTitle.id);
+              // Verificar si ya existe en la lista de resultados
+              const exists = await clickupService.checkPersonExistsInResults(person.profileUrl);
               
               if (!exists) {
-                await clickupService.createPersonTask(person, jobTitle.id, company.company, jobTitle.title);
-                console.log(`    ✓ Saved: ${person.name} - ${person.title}`);
+                // Guardar en la lista de resultados (sin parent, sin organizar por cargo)
+                await clickupService.createPersonResult(person, company.company, jobTitle.title);
+                console.log(`    ✓ Saved to results: ${person.name}${person.title ? ` - ${person.title}` : ''}`);
               } else {
-                console.log(`    ⊙ Already exists: ${person.name}`);
+                console.log(`    ⊙ Already exists in results: ${person.name}`);
               }
             } catch (saveError) {
               console.error(`    ✗ Error saving ${person.name}:`, saveError.message);
