@@ -57,7 +57,7 @@ const createPersonTask = async (person, jobTitleId, companyName, jobTitle) => {
         priority: null,
         due_date: null,
         due_date_time: false,
-        parent: jobTitleId,
+        // Sin parent - crear directamente en la lista
         time_estimate: null,
         start_date: null,
         start_date_time: false,
@@ -102,23 +102,20 @@ const checkPersonExists = async (personUrl, jobTitleId) => {
 
     const tasks = response.data.tasks || [];
     
-    // Buscar en todas las tareas y sus subtareas
+    // Buscar en TODAS las tareas de la lista (ya no hay subtareas)
     for (const task of tasks) {
-      // Verificar si es subtarea del cargo buscado
-      if (task.parent?.id === jobTitleId || task.id === jobTitleId) {
-        // Verificar en la descripción de esta tarea
-        const description = task.description || '';
-        if (description.includes(personUrl)) {
-          return true;
-        }
-        
-        // Si esta tarea tiene subtareas, verificar también
-        if (task.subtasks && task.subtasks.length > 0) {
-          for (const subtask of task.subtasks) {
-            const subtaskDesc = subtask.description || '';
-            if (subtaskDesc.includes(personUrl)) {
-              return true;
-            }
+      // Verificar en la descripción de esta tarea
+      const description = task.description || '';
+      if (description.includes(personUrl)) {
+        return true;
+      }
+      
+      // También verificar en subtareas si las hay (por si acaso)
+      if (task.subtasks && task.subtasks.length > 0) {
+        for (const subtask of task.subtasks) {
+          const subtaskDesc = subtask.description || '';
+          if (subtaskDesc.includes(personUrl)) {
+            return true;
           }
         }
       }
