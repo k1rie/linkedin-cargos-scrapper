@@ -14,7 +14,7 @@ const randomDelay = (min, max) => {
 };
 
 const filterResults = (results, companyName, jobTitle) => {
-  console.log(`\n  🔍 Filtering ${results.length} results for: "${jobTitle}"`);
+  console.log(`\n  🔍 Filtering ${results.length} results for: "${jobTitle}" at "${companyName}"`);
   
   const filtered = results.filter(person => {
     // Si no tiene URL, descartar
@@ -23,10 +23,47 @@ const filterResults = (results, companyName, jobTitle) => {
       return false;
     }
     
-    // Si no tiene título, pero tiene nombre, aceptar (puede ser útil)
+    // Verificar empresa primero (más importante)
+    const normalizeCompany = (name) => {
+      return name
+        .toLowerCase()
+        .replace(/[^\w\sáéíóúñü]/g, ' ') // Remover caracteres especiales
+        .replace(/\s+/g, ' ')
+        .trim();
+    };
+    
+    const normalizedSearchCompany = normalizeCompany(companyName);
+    const normalizedPersonCompany = person.company ? normalizeCompany(person.company) : '';
+    
+    // Verificar si la empresa coincide
+    let companyMatch = false;
+    if (normalizedPersonCompany) {
+      // Coincidencia exacta o parcial (la empresa de la persona contiene la buscada o viceversa)
+      companyMatch = normalizedPersonCompany.includes(normalizedSearchCompany) || 
+                     normalizedSearchCompany.includes(normalizedPersonCompany);
+      
+      if (!companyMatch) {
+        // Intentar match por palabras clave de la empresa
+        const companyWords = normalizedSearchCompany.split(/\s+/).filter(w => w.length > 2);
+        const matchingCompanyWords = companyWords.filter(word => normalizedPersonCompany.includes(word));
+        // Si coinciden al menos 50% de las palabras de la empresa
+        companyMatch = matchingCompanyWords.length >= Math.ceil(companyWords.length * 0.5);
+      }
+    } else {
+      // Si no tenemos empresa extraída, confiar en que LinkedIn filtró correctamente
+      // Pero ser más estricto con el título
+      companyMatch = true; // Asumir que LinkedIn ya filtró por empresa
+    }
+    
+    if (!companyMatch) {
+      console.log(`    ❌ Company mismatch: ${person.name} - works at "${person.company}" (searching for "${companyName}")`);
+      return false;
+    }
+    
+    // Si no tiene título, pero pasó el filtro de empresa, aceptar
     if (!person.title) {
-      console.log(`    ⚠️  No title but has profile: ${person.name} - ${person.profileUrl}`);
-      return true; // Aceptar de todas formas
+      console.log(`    ⚠️  No title but company matches: ${person.name} - ${person.company}`);
+      return true;
     }
     
     const personTitle = person.title.toLowerCase();
@@ -84,9 +121,9 @@ const filterResults = (results, companyName, jobTitle) => {
       
       // Logging detallado
       if (titleMatch) {
-        console.log(`    ✅ Match (${matchReason}): ${person.name} - "${person.title}"`);
+        console.log(`    ✅ Match (${matchReason}): ${person.name} - "${person.title}" at ${person.company || 'N/A'}`);
       } else {
-        console.log(`    ❌ No match: ${person.name} - "${person.title}" (keywords: ${matchingWords.join(', ')} vs ${jobTitleWords.join(', ')})`);
+        console.log(`    ❌ No title match: ${person.name} - "${person.title}" (keywords: ${matchingWords.join(', ')} vs ${jobTitleWords.join(', ')})`);
       }
     } else {
       // Si el título de búsqueda es muy corto, hacer match exacto o parcial
@@ -94,9 +131,9 @@ const filterResults = (results, companyName, jobTitle) => {
                   normalizedSearchTitle.includes(normalizedPersonTitle);
       
       if (titleMatch) {
-        console.log(`    ✅ Match (partial): ${person.name} - "${person.title}"`);
+        console.log(`    ✅ Match (partial): ${person.name} - "${person.title}" at ${person.company || 'N/A'}`);
       } else {
-        console.log(`    ❌ No match: ${person.name} - "${person.title}"`);
+        console.log(`    ❌ No title match: ${person.name} - "${person.title}"`);
       }
     }
     
