@@ -258,18 +258,17 @@ const startScraping = async () => {
           
           for (const person of filteredResults) {
             try {
-              // Verificar si ya existe en la lista de resultados
-              const exists = await clickupService.checkPersonExistsInResults(person.profileUrl);
-              
-              if (!exists) {
-                // Guardar en la lista de resultados (sin parent, sin organizar por cargo)
-                await clickupService.createPersonResult(person, company.company, jobTitle.title);
-                console.log(`    ✓ Saved to results: ${person.name}${person.title ? ` - ${person.title}` : ''}`);
+              // Guardar en HubSpot como deal
+              const hubspotResult = await hubspotService.createDealForPerson(person, company.company, jobTitle.title);
+              if (hubspotResult && hubspotResult.duplicate) {
+                console.log(`    ⊙ Already exists in HubSpot: ${person.name}${person.title ? ` - ${person.title}` : ''}`);
+              } else if (hubspotResult) {
+                console.log(`    ✓ Saved to HubSpot: ${person.name}${person.title ? ` - ${person.title}` : ''}`);
               } else {
-                console.log(`    ⊙ Already exists in results: ${person.name}`);
+                console.warn(`    ⚠️  Failed to save to HubSpot: ${person.name}`);
               }
             } catch (saveError) {
-              console.error(`    ✗ Error saving ${person.name}:`, saveError.message);
+              console.error(`    ✗ Error saving ${person.name} to HubSpot:`, saveError.message);
             }
             
             // Delay entre guardar cada persona (1 segundo)
