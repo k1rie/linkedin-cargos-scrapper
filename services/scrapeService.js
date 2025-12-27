@@ -25,6 +25,7 @@ const filterResults = (results, companyName, jobTitle) => {
     }
     
     // 🔒 FILTRO DE UBICACIÓN: Solo perfiles de México
+    // Simplificado: solo verificar keywords básicas (la extracción ya busca estas)
     const isFromMexico = (location) => {
       if (!location || location.trim().length === 0) {
         // Si no hay ubicación, rechazar (ser estricto)
@@ -33,38 +34,11 @@ const filterResults = (results, companyName, jobTitle) => {
       
       const locationLower = location.toLowerCase();
       
-      // Palabras clave que indican México
-      const mexicoKeywords = [
-        'méxico', 'mexico', 'mex',
-        'cdmx', 'ciudad de méxico', 'ciudad de mexico',
-        'nuevo león', 'nuevo leon',
-        'jalisco', 'guadalajara',
-        'puebla', 'querétaro', 'queretaro',
-        'yucatán', 'yucatan', 'mérida',
-        'monterrey', 'tijuana', 'cancún', 'cancun',
-        'guadalajara', 'puebla', 'toluca',
-        'méxico df', 'mexico df', 'df',
-        'estado de méxico', 'estado de mexico', 'edomex',
-        'quintana roo', 'baja california', 'baja california sur',
-        'sonora', 'chihuahua', 'coahuila', 'tamaulipas',
-        'veracruz', 'oaxaca', 'chiapas', 'michoacán', 'michoacan',
-        'guanajuato', 'san luis potosí', 'san luis potosi',
-        'zacatecas', 'durango', 'sinaloa', 'aguascalientes',
-        'morelos', 'tlaxcala', 'hidalgo', 'tabasco',
-        'campeche', 'colima', 'nayarit'
-      ];
+      // Keywords básicas de México (las mismas que busca la extracción)
+      const mexicoKeywords = ['méxico', 'mexico', 'mex', 'cdmx', 'ciudad de méxico', 'ciudad de mexico'];
       
-      // Verificar si contiene alguna palabra clave de México
-      const containsMexicoKeyword = mexicoKeywords.some(keyword => 
-        locationLower.includes(keyword)
-      );
-      
-      // También verificar patrones comunes de ubicación mexicana
-      // Ejemplo: "Ciudad, Estado, México" o "Ciudad, México"
-      const mexicoPattern = /(méxico|mexico|mex|cdmx|df)(\s|$|,)/i;
-      const hasMexicoPattern = mexicoPattern.test(location);
-      
-      return containsMexicoKeyword || hasMexicoPattern;
+      // Verificar si contiene alguna keyword de México
+      return mexicoKeywords.some(keyword => locationLower.includes(keyword));
     };
     
     if (!isFromMexico(person.location)) {
