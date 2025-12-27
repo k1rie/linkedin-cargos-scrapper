@@ -15,11 +15,60 @@ const randomDelay = (min, max) => {
 
 const filterResults = (results, companyName, jobTitle) => {
   console.log(`\n  🔍 Filtering ${results.length} results for: "${jobTitle}" at "${companyName}"`);
+  console.log(`  🇲🇽 Location filter: Only profiles from Mexico will be accepted`);
   
   const filtered = results.filter(person => {
     // Si no tiene URL, descartar
     if (!person.profileUrl) {
       console.log(`    ❌ Skipped (no URL): ${person.name}`);
+      return false;
+    }
+    
+    // 🔒 FILTRO DE UBICACIÓN: Solo perfiles de México
+    const isFromMexico = (location) => {
+      if (!location || location.trim().length === 0) {
+        // Si no hay ubicación, rechazar (ser estricto)
+        return false;
+      }
+      
+      const locationLower = location.toLowerCase();
+      
+      // Palabras clave que indican México
+      const mexicoKeywords = [
+        'méxico', 'mexico', 'mex',
+        'cdmx', 'ciudad de méxico', 'ciudad de mexico',
+        'nuevo león', 'nuevo leon',
+        'jalisco', 'guadalajara',
+        'puebla', 'querétaro', 'queretaro',
+        'yucatán', 'yucatan', 'mérida',
+        'monterrey', 'tijuana', 'cancún', 'cancun',
+        'guadalajara', 'puebla', 'toluca',
+        'méxico df', 'mexico df', 'df',
+        'estado de méxico', 'estado de mexico', 'edomex',
+        'quintana roo', 'baja california', 'baja california sur',
+        'sonora', 'chihuahua', 'coahuila', 'tamaulipas',
+        'veracruz', 'oaxaca', 'chiapas', 'michoacán', 'michoacan',
+        'guanajuato', 'san luis potosí', 'san luis potosi',
+        'zacatecas', 'durango', 'sinaloa', 'aguascalientes',
+        'morelos', 'tlaxcala', 'hidalgo', 'tabasco',
+        'campeche', 'colima', 'nayarit'
+      ];
+      
+      // Verificar si contiene alguna palabra clave de México
+      const containsMexicoKeyword = mexicoKeywords.some(keyword => 
+        locationLower.includes(keyword)
+      );
+      
+      // También verificar patrones comunes de ubicación mexicana
+      // Ejemplo: "Ciudad, Estado, México" o "Ciudad, México"
+      const mexicoPattern = /(méxico|mexico|mex|cdmx|df)(\s|$|,)/i;
+      const hasMexicoPattern = mexicoPattern.test(location);
+      
+      return containsMexicoKeyword || hasMexicoPattern;
+    };
+    
+    if (!isFromMexico(person.location)) {
+      console.log(`    ❌ Not from Mexico: ${person.name} - Location: "${person.location || 'N/A'}"`);
       return false;
     }
     
@@ -60,9 +109,9 @@ const filterResults = (results, companyName, jobTitle) => {
       return false;
     }
     
-    // Si no tiene título, pero pasó el filtro de empresa, aceptar
+    // Si no tiene título, pero pasó el filtro de empresa y ubicación, aceptar
     if (!person.title) {
-      console.log(`    ⚠️  No title but company matches: ${person.name} - ${person.company}`);
+      console.log(`    ⚠️  No title but company matches: ${person.name} - ${person.company} [${person.location || 'N/A'}]`);
       return true;
     }
     
@@ -121,7 +170,7 @@ const filterResults = (results, companyName, jobTitle) => {
       
       // Logging detallado
       if (titleMatch) {
-        console.log(`    ✅ Match (${matchReason}): ${person.name} - "${person.title}" at ${person.company || 'N/A'}`);
+        console.log(`    ✅ Match (${matchReason}): ${person.name} - "${person.title}" at ${person.company || 'N/A'} [${person.location || 'N/A'}]`);
       } else {
         console.log(`    ❌ No title match: ${person.name} - "${person.title}" (keywords: ${matchingWords.join(', ')} vs ${jobTitleWords.join(', ')})`);
       }
@@ -131,7 +180,7 @@ const filterResults = (results, companyName, jobTitle) => {
                   normalizedSearchTitle.includes(normalizedPersonTitle);
       
       if (titleMatch) {
-        console.log(`    ✅ Match (partial): ${person.name} - "${person.title}" at ${person.company || 'N/A'}`);
+        console.log(`    ✅ Match (partial): ${person.name} - "${person.title}" at ${person.company || 'N/A'} [${person.location || 'N/A'}]`);
       } else {
         console.log(`    ❌ No title match: ${person.name} - "${person.title}"`);
       }
