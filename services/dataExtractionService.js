@@ -284,16 +284,32 @@ const extractSearchResultsWithCheerio = async (page) => {
                 const beforePosition = afterSeparator.split(/(?:Current|Actual|Past|Pasado):/i)[0].trim();
                 
                 if (beforePosition) {
-                  // Buscar ubicación (contiene nombres de lugares conocidos)
-                  const locationMatch = beforePosition.match(/(Greater|Metropolitan|Area|Área|México|Argentina|Colombia|España|Chile|Perú|Bogotá|Buenos Aires|Madrid|Barcelona|Lima|Santiago|Córdoba|Granada|Andalusia|Ecuador|Nuevo León|Ciudad de México|CDMX)[\w\s,]*$/i);
+                  // Mejorar búsqueda de ubicación: patrones más específicos
+                  // Buscar "City, State, Country" o "City, Country" antes de "Message", "followers", etc.
+                  const locationPattern = /([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s*,\s*(?:[A-Z][a-z]+\s*,\s*)?(?:México|Mexico|Argentina|Colombia|España|Chile|Perú|United States|Estados Unidos|India|Costa Rica|New Mexico|Nevada|California|Texas|Florida|New York|Illinois|Arizona|Washington|Oregon|Colorado|Massachusetts|Pennsylvania|North Carolina|Georgia|Michigan|New Jersey|Virginia|Ohio|Tennessee|Indiana|Missouri|Maryland|Wisconsin|Minnesota|Louisiana|Alabama|South Carolina|Kentucky|Connecticut|Iowa|Oklahoma|Arkansas|Mississippi|Kansas|Utah|Nevada|New Mexico|West Virginia|Nebraska|Idaho|Hawaii|New Hampshire|Maine|Rhode Island|Montana|Delaware|South Dakota|North Dakota|Alaska|Vermont|Wyoming|District of Columbia))(?:\s*Message|\s*\d+\s*(?:followers?|conexiones?|seguidores?)|$)/i;
+                  
+                  const locationMatch = beforePosition.match(locationPattern);
                   
                   if (locationMatch) {
                     const beforeLocation = beforePosition.substring(0, locationMatch.index).trim();
                     if (beforeLocation) parts.push(beforeLocation); // Título
-                    parts.push(locationMatch[0].trim()); // Ubicación
+                    // Extraer ubicación limpiando "Message", "followers", etc.
+                    let cleanLocation = locationMatch[1].trim();
+                    cleanLocation = cleanLocation.replace(/\s*Message\s*$/i, '').trim();
+                    parts.push(cleanLocation); // Ubicación
                   } else {
-                    // No se encontró ubicación, todo es título
-                    parts.push(beforePosition);
+                    // Intentar con keywords más simples
+                    const simpleLocationMatch = beforePosition.match(/([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s*,\s*(?:México|Mexico|Argentina|Colombia|España|Chile|Perú|United States|Estados Unidos|India|Costa Rica|New Mexico|Nevada))(?:\s*Message|\s*\d+\s*(?:followers?|conexiones?|seguidores?)|$)/i);
+                    if (simpleLocationMatch) {
+                      const beforeLocation = beforePosition.substring(0, simpleLocationMatch.index).trim();
+                      if (beforeLocation) parts.push(beforeLocation); // Título
+                      let cleanLocation = simpleLocationMatch[1].trim();
+                      cleanLocation = cleanLocation.replace(/\s*Message\s*$/i, '').trim();
+                      parts.push(cleanLocation); // Ubicación
+                    } else {
+                      // No se encontró ubicación, todo es título
+                      parts.push(beforePosition);
+                    }
                   }
                 }
                 
@@ -302,12 +318,15 @@ const extractSearchResultsWithCheerio = async (page) => {
                 if (pastMatch && !currentMatch) parts.push(pastMatch[0].trim());
               } else {
                 // No hay Current/Past, intentar dividir por ubicación
-                const locationMatch = afterSeparator.match(/(Greater|Metropolitan|Area|Área|México|Argentina|Colombia|España|Chile|Perú|Bogotá|Buenos Aires|Madrid|Barcelona|Lima|Santiago|Córdoba|Granada|Andalusia|Ecuador|Nuevo León|Ciudad de México|CDMX)[\w\s,]*$/i);
+                const locationPattern = /([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s*,\s*(?:[A-Z][a-z]+\s*,\s*)?(?:México|Mexico|Argentina|Colombia|España|Chile|Perú|United States|Estados Unidos|India|Costa Rica|New Mexico|Nevada))(?:\s*Message|\s*\d+\s*(?:followers?|conexiones?|seguidores?)|$)/i;
+                const locationMatch = afterSeparator.match(locationPattern);
                 
                 if (locationMatch) {
                   const beforeLocation = afterSeparator.substring(0, locationMatch.index).trim();
                   if (beforeLocation) parts.push(beforeLocation); // Título
-                  parts.push(locationMatch[0].trim()); // Ubicación
+                  let cleanLocation = locationMatch[1].trim();
+                  cleanLocation = cleanLocation.replace(/\s*Message\s*$/i, '').trim();
+                  parts.push(cleanLocation); // Ubicación
                 } else if (afterSeparator) {
                   // Todo el texto restante es el título
                   parts.push(afterSeparator);
@@ -415,17 +434,104 @@ const extractSearchResultsWithCheerio = async (page) => {
           }
         }
         
-        // Buscar ubicación (suele contener nombres de ciudades/países)
-        const locationKeywords = ['México', 'Argentina', 'Colombia', 'España', 'Chile', 'Perú',
-                                 'Bogotá', 'Buenos Aires', 'Madrid', 'Barcelona', 'Lima', 'Santiago',
-                                 'Ciudad', 'Metropolitan', 'Area', 'Área', 'Greater'];
+        // Buscar ubicación (mejorado para detectar ubicaciones concatenadas)
+        // Patrones de ubicación comunes: "City, State, Country" o "City, Country"
+        const locationPatterns = [
+          // México - formato "City, Mexico" o "City, State, Mexico"
+          /([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s*,\s*(Nuevo León|Jalisco|Puebla|Querétaro|Yucatán|Estado de México|CDMX|Ciudad de México|México|Mexico)/i,
+          // México - ciudades principales directamente
+          /(Ciudad de México|CDMX|México DF|Mexico DF|DF|Monterrey|Guadalajara|Puebla|Tijuana|Cancún|Mérida|Toluca|León|Querétaro|San Luis Potosí|Aguascalientes|Morelia|Cuernavaca|Chihuahua|Hermosillo|Mazatlán|Veracruz|Oaxaca|Tuxtla Gutiérrez|Villahermosa|Campeche|Chetumal|Colima|Zacatecas|Durango|Culiacán|Tepic|La Paz|Chilpancingo|Xalapa|Pachuca|Tlaxcala)\s*(?:,\s*(México|Mexico))?/i,
+          // México - formato "City, State, Mexico" (ej: "Mexico City, Mexico")
+          /([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s*,\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s*,\s*(México|Mexico)/i,
+          // Estados Unidos (para referencia, pero solo aceptaremos México)
+          /([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s*,\s*(New Mexico|Nevada|California|Texas|Florida|New York|Illinois|Arizona|Washington|Oregon|Colorado|Massachusetts|Pennsylvania|North Carolina|Georgia|Michigan|New Jersey|Virginia|Ohio|Tennessee|Indiana|Missouri|Maryland|Wisconsin|Minnesota|Louisiana|Alabama|South Carolina|Kentucky|Connecticut|Iowa|Oklahoma|Arkansas|Mississippi|Kansas|Utah|New Hampshire|Maine|Rhode Island|Montana|Delaware|South Dakota|North Dakota|Alaska|Vermont|Wyoming|District of Columbia)\s*(?:,\s*(United States|Estados Unidos))?/i,
+          // Otros países (para referencia, pero solo aceptaremos México)
+          /([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s*,\s*(Argentina|Colombia|España|Chile|Perú|Ecuador|Venezuela|Uruguay|Paraguay|Bolivia|Brasil|Estados Unidos|United States|India|Costa Rica)/i,
+        ];
         
-        for (const line of lines) {
-          if (locationKeywords.some(keyword => line.includes(keyword)) && 
-              !line.match(/^(Current|Actual|Past|Pasado):/i) &&
-              line.length < 100) {
-            location = line;
-            break;
+        // Buscar ubicación en todas las líneas y en el texto completo
+        const allText = lines.join(' ');
+        
+        // Primero, buscar ubicaciones concatenadas sin espacio (ej: "Green BeltMexico City")
+        const concatenatedLocationPattern = /([a-z])([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s*,\s*(México|Mexico|Nuevo León|Jalisco|Puebla|New Mexico|Nevada|United States)/i;
+        const concatenatedMatch = allText.match(concatenatedLocationPattern);
+        if (concatenatedMatch) {
+          // Extraer solo la parte de la ubicación (ciudad y país/estado)
+          let extractedLocation = concatenatedMatch[2] + ', ' + concatenatedMatch[3];
+          // Limpiar
+          extractedLocation = extractedLocation
+            .replace(/\s*Message\s*$/i, '')
+            .replace(/\s*\d+\s*(followers?|conexiones?|seguidores?)\s*$/i, '')
+            .trim();
+          
+          if (extractedLocation.length > 3 && extractedLocation.length < 150) {
+            location = extractedLocation;
+          }
+        }
+        
+        // Si no se encontró con el patrón de concatenación, usar los patrones normales
+        if (!location) {
+          for (const pattern of locationPatterns) {
+            const match = allText.match(pattern);
+            if (match) {
+              // Extraer la ubicación completa
+              let extractedLocation = match[0];
+              // Limpiar: remover palabras que no son parte de la ubicación (Message, followers, etc.)
+              extractedLocation = extractedLocation
+                .replace(/\s*Message\s*$/i, '')
+                .replace(/\s*\d+\s*(followers?|conexiones?|seguidores?)\s*$/i, '')
+                .replace(/\s*Visit\s+my\s+website\s*$/i, '')
+                .trim();
+              
+              if (extractedLocation.length > 3 && extractedLocation.length < 150) {
+                location = extractedLocation;
+                break;
+              }
+            }
+          }
+        }
+        
+        // Si no se encontró con patrones, buscar por keywords en líneas individuales
+        if (!location) {
+          const locationKeywords = ['México', 'Mexico', 'CDMX', 'Ciudad de México', 'Nuevo León', 
+                                   'Jalisco', 'Puebla', 'Monterrey', 'Guadalajara', 'Tijuana',
+                                   'Argentina', 'Colombia', 'España', 'Chile', 'Perú',
+                                   'Bogotá', 'Buenos Aires', 'Madrid', 'Barcelona', 'Lima', 'Santiago',
+                                   'Ciudad', 'Metropolitan', 'Area', 'Área', 'Greater'];
+          
+          for (const line of lines) {
+            // Buscar keywords dentro de la línea (no solo línea completa)
+            for (const keyword of locationKeywords) {
+              const keywordIndex = line.toLowerCase().indexOf(keyword.toLowerCase());
+              if (keywordIndex !== -1) {
+                // Extraer ubicación desde el keyword hacia atrás y adelante
+                // Buscar el inicio (buscar hacia atrás hasta encontrar una coma o inicio de palabra)
+                let start = keywordIndex;
+                while (start > 0 && line[start - 1] !== ',' && line[start - 1] !== ' ') {
+                  start--;
+                }
+                
+                // Buscar el final (buscar hacia adelante hasta encontrar "Message", "followers", o fin de línea)
+                let end = keywordIndex + keyword.length;
+                const endMatch = line.substring(end).match(/^([^Message]*?)(?:\s*Message|\s*\d+\s*(?:followers?|conexiones?|seguidores?)|$)/i);
+                if (endMatch) {
+                  end = end + endMatch[1].length;
+                } else {
+                  // Si no hay match, buscar hasta el final o hasta 100 caracteres
+                  end = Math.min(end + 50, line.length);
+                }
+                
+                const extracted = line.substring(start, end).trim();
+                if (extracted.length > 3 && extracted.length < 150) {
+                  location = extracted
+                    .replace(/\s*Message\s*$/i, '')
+                    .replace(/\s*\d+\s*(followers?|conexiones?|seguidores?)\s*$/i, '')
+                    .trim();
+                  break;
+                }
+              }
+            }
+            if (location) break;
           }
         }
         
@@ -456,7 +562,7 @@ const extractSearchResultsWithCheerio = async (page) => {
             rawText: containerText.substring(0, 300), // Para debugging
           });
           
-          console.log(`Extracted: ${name} - ${title}`);
+          console.log(`Extracted: ${name} - ${title || 'N/A'} [Location: ${location || 'N/A'}]`);
         }
       } catch (error) {
         console.error('Error extracting individual result:', error.message);
