@@ -357,7 +357,20 @@ const createDealForPerson = async (personData, searchCompany, searchJobTitle) =>
       `Fecha de extracción: ${new Date().toISOString()}\n`;
 
     // Construir nombre del deal
-    const dealName = `${personData.name || 'LinkedIn Member'} - ${searchJobTitle} (${searchCompany})`;
+    const dealName = `Scrapper Cargos: ${personData.name || 'LinkedIn Member'} - ${searchJobTitle} (${searchCompany})`;
+
+    // Log de datos que se van a guardar
+    console.log('=== GUARDANDO DEAL EN HUBSPOT ===');
+    console.log(`Programa: Scrapper Cargos`);
+    console.log(`Deal Name: ${dealName}`);
+    console.log(`Person Name: ${personData.name || 'N/A'}`);
+    console.log(`Job Title: ${searchJobTitle}`);
+    console.log(`Company: ${searchCompany}`);
+    console.log(`Profile URL: ${personData.profileUrl}`);
+    console.log(`Current Title: ${personData.title || 'N/A'}`);
+    console.log(`Current Company: ${personData.company || 'N/A'}`);
+    console.log(`Location: ${personData.location || 'N/A'}`);
+    console.log('================================');
 
     // Crear el deal
     const response = await axios.post(
@@ -381,6 +394,12 @@ const createDealForPerson = async (personData, searchCompany, searchJobTitle) =>
     );
 
     console.log(`✅ Deal created in HubSpot: ${dealName}`);
+    console.log('=== DEAL CREADO EXITOSAMENTE ===');
+    console.log(`Deal ID: ${response.data.id}`);
+    console.log(`Deal Name: ${dealName}`);
+    console.log(`Pipeline: ${pipelineId}`);
+    console.log(`Stage: ${dealStageId}`);
+    console.log('================================');
     return response.data;
   } catch (error) {
     console.error('=== HubSpot Create Deal Error ===');
@@ -442,7 +461,18 @@ const createDealForPost = async (postData, keyword) => {
       `Fecha del post: ${postData.createdAt || new Date().toISOString()}\n`;
 
     // Construir nombre del deal
-    const dealName = `${postData.author || 'LinkedIn User'} - Post LinkedIn (${keyword})`;
+    const dealName = `Scrapper Cargos Post: ${postData.author || 'LinkedIn User'} - Post LinkedIn (${keyword})`;
+
+    // Log de datos que se van a guardar
+    console.log('=== GUARDANDO DEAL EN HUBSPOT ===');
+    console.log(`Programa: Scrapper Cargos Post`);
+    console.log(`Deal Name: ${dealName}`);
+    console.log(`Author: ${postData.author || 'N/A'}`);
+    console.log(`Keyword: ${keyword}`);
+    console.log(`Post URL: ${postData.url}`);
+    console.log(`Profile URL: ${postData.profileUrl || 'N/A'}`);
+    console.log(`Created At: ${postData.createdAt || 'N/A'}`);
+    console.log('================================');
 
     // Crear el deal
     const response = await axios.post(
@@ -466,6 +496,12 @@ const createDealForPost = async (postData, keyword) => {
     );
 
     console.log(`✅ Deal created in HubSpot: ${dealName}`);
+    console.log('=== DEAL CREADO EXITOSAMENTE ===');
+    console.log(`Deal ID: ${response.data.id}`);
+    console.log(`Deal Name: ${dealName}`);
+    console.log(`Pipeline: ${pipelineId}`);
+    console.log(`Stage: ${dealStageId}`);
+    console.log('================================');
     return response.data;
   } catch (error) {
     console.error('=== HubSpot Create Deal Error ===');
