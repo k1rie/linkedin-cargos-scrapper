@@ -513,6 +513,7 @@ const createDealForPost = async (postData, keyword) => {
   }
 };
 
+
 module.exports = {
   getCompaniesFromSegment,
   getCompanyById,

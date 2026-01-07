@@ -39,7 +39,7 @@ const searchPeopleWithApify = async (companyName, jobTitle) => {
   try {
     loggerService.info(`\n=== INICIANDO BÚSQUEDA CON APIFY ===`);
     loggerService.info(`Actor ID: ${APIFY_ACTOR_ID}`);
-    loggerService.info(`Modo: Short (ahorro de créditos)`);
+    loggerService.info(`Modo: Full (información completa y precisa)`);
     loggerService.info(`Empresa: ${companyName}`);
     loggerService.info(`Cargo: ${jobTitle}`);
     loggerService.info(`Query: ${companyName} ${jobTitle}`);
@@ -48,9 +48,9 @@ const searchPeopleWithApify = async (companyName, jobTitle) => {
 
     const apifyClient = getClient();
 
-    // Preparar input del Actor - usar short mode para ahorrar créditos
+    // Preparar input del Actor - usar full mode para información precisa
     const input = {
-      profileScraperMode: "Short",
+      profileScraperMode: "Full",
       maxItems: MAX_RESULTS_PER_SEARCH,
       startPage: 1,
       searchQuery: `${companyName} ${jobTitle}`, // Sin símbolos, formato simple

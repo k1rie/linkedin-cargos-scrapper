@@ -79,15 +79,41 @@ const filterResults = (results, companyName, jobTitle) => {
       return false;
     }
     
-    // Si no tiene título, pero pasó el filtro de empresa y ubicación, aceptar
-    if (!person.title) {
-      console.log(`    ⚠️  No title but company matches: ${person.name} - ${person.company} [${person.location || 'N/A'}]`);
-      return true;
+    // Verificar título/cargo - ser más estricto con Full mode
+    let hasValidTitle = false;
+    let actualTitle = '';
+    let titleSource = '';
+
+    // En Full mode, verificar currentPosition para título más preciso
+    if (person.currentPosition && person.currentPosition.length > 0) {
+      const currentPos = person.currentPosition[0];
+      if (currentPos.position) {
+        actualTitle = currentPos.position;
+        hasValidTitle = true;
+        titleSource = 'currentPosition';
+        console.log(`    📋 Current position: "${actualTitle}"`);
+      }
     }
+
+    // Si no tenemos currentPosition, usar el título del headline
+    if (!hasValidTitle && person.title) {
+      actualTitle = person.title;
+      hasValidTitle = true;
+      titleSource = 'headline';
+      console.log(`    📰 Headline title: "${actualTitle}"`);
+    }
+
+    // Si no tenemos título válido, rechazar (ser estricto)
+    if (!hasValidTitle) {
+      console.log(`    ❌ No valid title found: ${person.name} - ${person.company} [${person.location || 'N/A'}]`);
+      return false;
+    }
+
+    console.log(`    🔍 Using title from: ${titleSource}`);
     
-    const personTitle = person.title.toLowerCase();
+    const personTitle = actualTitle.toLowerCase();
     const searchJobTitle = jobTitle.toLowerCase();
-    
+
     // Normalizar títulos: remover caracteres especiales y normalizar espacios
     const normalizeTitle = (title) => {
       return title
@@ -97,7 +123,7 @@ const filterResults = (results, companyName, jobTitle) => {
         .replace(/\s+/g, ' ') // Normalizar espacios
         .trim();
     };
-    
+
     const normalizedPersonTitle = normalizeTitle(personTitle);
     const normalizedSearchTitle = normalizeTitle(searchJobTitle);
     
