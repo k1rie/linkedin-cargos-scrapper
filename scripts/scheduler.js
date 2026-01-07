@@ -1,13 +1,14 @@
 require('dotenv').config();
 const cron = require('node-cron');
-const hubspotService = require('../services/hubspotService');
-const clickupService = require('../services/clickupService');
-const linkedinService = require('../services/linkedinService');
 const scrapeService = require('../services/scrapeService');
 
 let isRunning = false;
 
-const checkAndScrapeCompanies = async () => {
+// Configuración del scheduler
+const SCHEDULER_ENABLED = process.env.SCHEDULER_ENABLED === 'true';
+const SCHEDULER_INTERVAL_MINUTES = parseInt(process.env.SCHEDULER_INTERVAL_MINUTES || '1440'); // 24 horas por defecto
+
+const runScheduledScrape = async () => {
   if (isRunning) {
     console.log('[Scheduler] Scraping already in progress, skipping this run...');
     return;
@@ -15,106 +16,57 @@ const checkAndScrapeCompanies = async () => {
 
   try {
     isRunning = true;
-    console.log(`[Scheduler] ${new Date().toISOString()} - Starting hourly check...`);
-    
-    // Verificar sesión de LinkedIn
-    await linkedinService.ensureLoggedIn();
-    
-    // Obtener empresas del segmento
-    const companies = await hubspotService.getCompaniesFromSegment();
-    console.log(`[Scheduler] Found ${companies.length} companies in segment`);
-    
-    // Filtrar empresas que necesitan scraping (han pasado 3 meses o nunca se han scrapeado)
-    const companiesToScrape = companies.filter(company => 
-      hubspotService.shouldScrapeCompany(company.lastLinkedinScrape)
-    );
-    
-    if (companiesToScrape.length === 0) {
-      console.log('[Scheduler] No companies need scraping at this time');
-      return;
+    console.log(`[Scheduler] ${new Date().toISOString()} - Starting scheduled scrape...`);
+
+    // Ejecutar el scraping completo usando scrapeService
+    const result = await scrapeService.startScraping();
+
+    if (result.success) {
+      console.log(`[Scheduler] ✅ Scheduled scrape completed successfully`);
+    } else {
+      console.log(`[Scheduler] ❌ Scheduled scrape completed with issues: ${result.message || 'Unknown error'}`);
     }
-    
-    console.log(`[Scheduler] Found ${companiesToScrape.length} companies that need scraping`);
-    
-    // Obtener cargos de ClickUp
-    const jobTitles = await clickupService.getJobTitles();
-    console.log(`[Scheduler] Found ${jobTitles.length} job titles to search`);
-    
-    // Scrapear cada empresa
-    for (const company of companiesToScrape) {
-      try {
-        console.log(`[Scheduler] Scraping company: ${company.company}`);
-        
-        for (const jobTitle of jobTitles) {
-          try {
-            console.log(`  [Scheduler] Searching for: ${jobTitle.title} at ${company.company}`);
-            const results = await linkedinService.searchPeople(company.company, jobTitle.title);
-            
-            console.log(`  [Scheduler] Found ${results.length} results`);
-            
-            const { filterResults } = require('../services/scrapeService');
-            const filteredResults = filterResults(results, company.company, jobTitle.title);
-            console.log(`  [Scheduler] Filtered to ${filteredResults.length} matching results`);
-            
-            for (const person of filteredResults) {
-              try {
-                const exists = await clickupService.checkPersonExists(person.profileUrl, jobTitle.id);
-                
-                if (!exists) {
-                  await clickupService.createPersonTask(person, jobTitle.id, company.company, jobTitle.title);
-                  console.log(`    [Scheduler] ✓ Saved: ${person.name} - ${person.title}`);
-                } else {
-                  console.log(`    [Scheduler] ⊙ Already exists: ${person.name}`);
-                }
-              } catch (saveError) {
-                console.error(`    [Scheduler] ✗ Error saving ${person.name}:`, saveError.message);
-              }
-              
-              await new Promise(resolve => setTimeout(resolve, 1000));
-            }
-            
-            await new Promise(resolve => setTimeout(resolve, 2000));
-          } catch (error) {
-            console.error(`  [Scheduler] Error searching for ${jobTitle.title}:`, error.message);
-          }
-        }
-        
-        // Actualizar fecha de último scrape
-        try {
-          const now = new Date().toISOString().split('T')[0];
-          await hubspotService.updateLastScrape(company.id, now);
-          console.log(`[Scheduler] Updated last scrape date for ${company.company}`);
-        } catch (updateError) {
-          console.warn(`[Scheduler] Could not update last scrape date for ${company.company}: ${updateError.message}`);
-        }
-        
-        await new Promise(resolve => setTimeout(resolve, 5000));
-      } catch (error) {
-        console.error(`[Scheduler] Error scraping company ${company.company}:`, error.message);
-      }
-    }
-    
-    console.log(`[Scheduler] ${new Date().toISOString()} - Hourly check completed`);
+
   } catch (error) {
-    console.error('[Scheduler] Error in hourly check:', error);
+    console.error('[Scheduler] ❌ Error in scheduled scrape:', error.message);
   } finally {
     isRunning = false;
   }
 };
 
-// Ejecutar inmediatamente al iniciar
-console.log('[Scheduler] Starting scheduler...');
-console.log('[Scheduler] Will check for companies every hour');
-checkAndScrapeCompanies();
+// Función para convertir minutos a expresión cron
+const minutesToCron = (minutes) => {
+  if (minutes < 60) {
+    return `*/${minutes} * * * *`; // Cada X minutos
+  } else {
+    const hours = Math.floor(minutes / 60);
+    return `0 */${hours} * * *`; // Cada X horas
+  }
+};
 
-// Programar ejecución cada hora
-// Cron: '0 * * * *' = cada hora en el minuto 0
-cron.schedule('0 * * * *', () => {
-  checkAndScrapeCompanies();
-});
+if (SCHEDULER_ENABLED) {
+  console.log('[Scheduler] Starting scheduler...');
+  console.log(`[Scheduler] Will run every ${SCHEDULER_INTERVAL_MINUTES} minutes`);
+  console.log(`[Scheduler] Cron expression: ${minutesToCron(SCHEDULER_INTERVAL_MINUTES)}`);
 
-console.log('[Scheduler] Scheduler started. Checking every hour at minute 0');
-console.log('[Scheduler] Press Ctrl+C to stop');
+  // Ejecutar inmediatamente al iniciar (opcional)
+  if (process.argv.includes('--run-immediately')) {
+    console.log('[Scheduler] Running immediately as requested...');
+    runScheduledScrape();
+  }
+
+  // Programar ejecución según el intervalo configurado
+  const cronExpression = minutesToCron(SCHEDULER_INTERVAL_MINUTES);
+  cron.schedule(cronExpression, () => {
+    runScheduledScrape();
+  });
+
+  console.log(`[Scheduler] ✅ Scheduler started. Next run: ${new Date(Date.now() + SCHEDULER_INTERVAL_MINUTES * 60000).toISOString()}`);
+  console.log('[Scheduler] Press Ctrl+C to stop');
+} else {
+  console.log('[Scheduler] ❌ Scheduler is disabled (SCHEDULER_ENABLED=false)');
+  console.log('[Scheduler] Run manually with: npm run scrape');
+}
 
 // Manejar cierre graceful
 process.on('SIGINT', () => {

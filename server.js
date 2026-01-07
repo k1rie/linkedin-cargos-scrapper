@@ -50,24 +50,23 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log('');
   
-  // Verificar cookie
-  const LINKEDIN_LI_AT = process.env.LINKEDIN_LI_AT;
-  
-  if (!LINKEDIN_LI_AT || LINKEDIN_LI_AT.trim().length < 10) {
-    console.log('⚠️  LinkedIn cookie not configured');
-    console.log('📝 Please set LINKEDIN_LI_AT in .env');
+  // Verificar configuración de Apify
+  const APIFY_API_TOKEN = process.env.APIFY_API_TOKEN;
+
+  if (!APIFY_API_TOKEN || APIFY_API_TOKEN.trim().length < 10) {
+    console.log('⚠️  Apify API token not configured');
+    console.log('📝 Please set APIFY_API_TOKEN in .env');
     console.log('');
-    console.log('📝 How to extract li_at cookie:');
-    console.log('   1. Open LinkedIn in your browser and log in');
-    console.log('   2. Open DevTools (F12 or Cmd+Option+I)');
-    console.log('   3. Go to Application > Cookies > https://www.linkedin.com');
-    console.log('   4. Find the "li_at" cookie');
-    console.log('   5. Copy the "Value" field');
-    console.log('   6. Add it to .env as: LINKEDIN_LI_AT=your-cookie-value');
+    console.log('📝 How to get your Apify API token:');
+    console.log('   1. Go to https://console.apify.com/account/integrations');
+    console.log('   2. Copy your API token');
+    console.log('   3. Add it to .env as: APIFY_API_TOKEN=your-token-here');
+    console.log('');
+    console.log('💡 Tip: Run "npm run setup" for complete setup instructions');
     return;
   }
-  
-  console.log('✅ LinkedIn cookie found');
+
+  console.log('✅ Apify API token found');
   console.log('Starting automatic scraping...');
   console.log('');
   

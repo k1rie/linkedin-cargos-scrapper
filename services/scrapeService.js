@@ -2,16 +2,12 @@ const hubspotService = require('./hubspotService');
 const clickupService = require('./clickupService');
 const linkedinService = require('./linkedinService');
 
-// ⚠️ Delays para evitar detección
-const DELAYS = linkedinService.DELAYS || {
-  minDelay: 3000,
-  maxDelay: 8000
-};
+// Configuration from environment variables
+const SEARCH_DELAY_MS = parseInt(process.env.SEARCH_DELAY_MS || '2000');
+const MAX_COMPANIES_PER_RUN = parseInt(process.env.MAX_COMPANIES_PER_RUN || '50');
 
-// Función helper para delay aleatorio entre búsquedas
-const randomDelay = (min, max) => {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-};
+// Función helper para delay configurable
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 const filterResults = (results, companyName, jobTitle) => {
   console.log(`\n  🔍 Filtering ${results.length} results for: "${jobTitle}" at "${companyName}"`);
@@ -169,23 +165,23 @@ const filterResults = (results, companyName, jobTitle) => {
 
 const startScraping = async () => {
   try {
-    console.log('Starting scraping process...');
-    
-    const loginStatus = await linkedinService.ensureLoggedIn();
-    
-    if (typeof loginStatus === 'object' && !loginStatus.loggedIn) {
-      throw new Error(loginStatus.error || 'Login failed');
-    }
+    console.log('🚀 Starting scraping process with Apify...');
 
     const companies = await hubspotService.getCompaniesFromSegment();
     const jobTitles = await clickupService.getJobTitles();
     
     console.log(`Found ${companies.length} companies and ${jobTitles.length} job titles`);
     
-    const companiesToScrape = companies.filter(company => 
+    let companiesToScrape = companies.filter(company =>
       hubspotService.shouldScrapeCompany(company.lastLinkedinScrape)
     );
-    
+
+    // Aplicar límite máximo de compañías por ejecución
+    if (companiesToScrape.length > MAX_COMPANIES_PER_RUN) {
+      console.log(`Limiting to ${MAX_COMPANIES_PER_RUN} companies per run (out of ${companiesToScrape.length} available)`);
+      companiesToScrape = companiesToScrape.slice(0, MAX_COMPANIES_PER_RUN);
+    }
+
     console.log(`Companies to scrape: ${companiesToScrape.length}`);
     
     for (const company of companiesToScrape) {
@@ -271,19 +267,18 @@ const startScraping = async () => {
               console.error(`    ✗ Error saving ${person.name} to HubSpot:`, saveError.message);
             }
             
-            // Delay entre guardar cada persona (1 segundo)
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            // Delay entre guardar cada persona (configurable)
+            await delay(1000);
           }
           
-          // ⚠️ Delay aleatorio entre búsquedas (minDelay - maxDelay)
-          const delayBetweenSearches = randomDelay(DELAYS.minDelay, DELAYS.maxDelay);
-          console.log(`  ⏳ Waiting ${delayBetweenSearches}ms before next search...`);
-          await new Promise(resolve => setTimeout(resolve, delayBetweenSearches));
+          // Delay configurable entre búsquedas
+          console.log(`  ⏳ Waiting ${SEARCH_DELAY_MS}ms before next search...`);
+          await delay(SEARCH_DELAY_MS);
         } catch (error) {
           console.error(`  Error searching for ${jobTitle.title}:`, error.message);
           // Delay incluso si hay error
-          const delayOnError = randomDelay(DELAYS.minDelay, DELAYS.maxDelay);
-          await new Promise(resolve => setTimeout(resolve, delayOnError));
+          console.log(`  ⏳ Waiting ${SEARCH_DELAY_MS}ms after error before continuing...`);
+          await delay(SEARCH_DELAY_MS);
         }
       }
       
@@ -295,28 +290,21 @@ const startScraping = async () => {
         console.warn(`Could not update last scrape date for ${company.company}: ${updateError.message}`);
       }
       
-      // ⚠️ Delay aleatorio entre empresas (más largo)
-      const delayBetweenCompanies = randomDelay(DELAYS.minDelay * 2, DELAYS.maxDelay * 2);
+      // Delay entre empresas (configurable)
+      const delayBetweenCompanies = SEARCH_DELAY_MS * 2; // Doble delay entre empresas
       console.log(`⏳ Waiting ${delayBetweenCompanies}ms before next company...`);
-      await new Promise(resolve => setTimeout(resolve, delayBetweenCompanies));
+      await delay(delayBetweenCompanies);
     }
     
     console.log('Scraping process completed');
     
-    // Cerrar el navegador compartido al finalizar
-    console.log('🔒 Closing browser session...');
-    await linkedinService.closeSharedBrowser();
+    // Scraping completado exitosamente (Apify no requiere cerrar navegador)
     
     return { success: true };
   } catch (error) {
     console.error('Scraping error:', error);
     
-    // Cerrar el navegador en caso de error
-    try {
-      await linkedinService.closeSharedBrowser();
-    } catch (e) {
-      // Ignorar errores al cerrar
-    }
+    // Error en scraping (Apify no requiere cerrar navegador)
     
     throw error;
   }

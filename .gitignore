@@ -2,11 +2,6 @@ node_modules/
 .env
 *.log
 .DS_Store
-playwright/.cache/
-playwright-report/
-test-results/
-data/browser-profile/
-data/cookies.enc
 logs/
-src/.env
+data/logs/
 

@@ -13,7 +13,9 @@
     "scrape": "node scripts/scrape.js",
     "scrape:schedule": "node scripts/scrape.js --schedule",
     "scheduler": "node scripts/scheduler.js",
-    "reset-scrape": "node scripts/reset-last-scrape.js"
+    "scheduler:now": "node scripts/scheduler.js --run-immediately",
+    "reset-scrape": "node scripts/reset-last-scrape.js",
+    "setup": "echo '\\n=== LINKEDIN CARGOS SCRAPER SETUP ===\\n\\n1. Copy the environment template:\\n   cp env-template.txt .env\\n\\n2. Edit .env file with your API keys:\\n   - APIFY_API_TOKEN: Get from https://console.apify.com/account/integrations\\n   - HUBSPOT_API_KEY: Get from https://app.hubspot.com/settings/api\\n   - CLICKUP_API_TOKEN: Get from https://app.clickup.com/settings/apps\\n\\n3. Configure extraction limits (optional):\\n   - MAX_RESULTS_PER_SEARCH: Perfiles por búsqueda (default: 10)\\n   - MAX_COMPANIES_PER_RUN: Empresas por ejecución (default: 50)\\n   - SEARCH_DELAY_MS: Delay entre búsquedas (default: 2000ms)\\n\\n4. Run the scraper:\\n   npm start\\n\\n5. Or run scheduler:\\n   npm run scheduler\\n'"
   },
   "keywords": [
     "linkedin",
@@ -24,12 +26,11 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "apify-client": "^2.8.2",
     "axios": "^1.6.2",
-    "cheerio": "^1.1.2",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "node-cron": "^3.0.3",
-    "playwright": "^1.40.0",
     "winston": "^3.11.0"
   },
   "devDependencies": {
