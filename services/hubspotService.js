@@ -4,8 +4,8 @@ const HUBSPOT_API_KEY = process.env.HUBSPOT_API_KEY;
 const HUBSPOT_TOKEN = process.env.HUBSPOT_TOKEN || process.env.HUBSPOT_API_KEY; // Compatibilidad
 const HUBSPOT_SEGMENT_ID = process.env.HUBSPOT_SEGMENT_ID || 2825;
 const HUBSPOT_BASE_URL = 'https://api.hubapi.com';
-const HUBSPOT_PIPELINE_ID = process.env.HUBSPOT_PIPELINE_ID || '811215668';
-const HUBSPOT_DEAL_STAGE_ID = process.env.HUBSPOT_DEAL_STAGE_ID || null;
+const HUBSPOT_PIPELINE_ID = process.env.HUBSPOT_PIPELINE_ID || '654720623'; // Default: proyectos
+const HUBSPOT_DEAL_STAGE_ID = process.env.HUBSPOT_DEAL_STAGE_ID || '1069593191'; // Default: stage para cargos scraper
 
 const getCompaniesFromSegment = async () => {
   try {
@@ -308,6 +308,148 @@ const checkDuplicateDeal = async (profileUrl) => {
 };
 
 /**
+ * Verifica si ya existe un contacto con la misma URL de LinkedIn
+ * @param {string} linkedinUrl - URL del perfil de LinkedIn
+ * @returns {Promise<boolean>} true si existe un contacto duplicado
+ */
+const checkDuplicateContactByLinkedIn = async (linkedinUrl) => {
+  try {
+    if (!linkedinUrl || linkedinUrl.trim().length === 0) {
+      return false;
+    }
+
+    // Buscar contactos que tengan esta URL de LinkedIn
+    const response = await axios.post(
+      `${HUBSPOT_BASE_URL}/crm/v3/objects/contacts/search`,
+      {
+        filterGroups: [
+          {
+            filters: [
+              {
+                propertyName: 'linkedin',
+                operator: 'EQ',
+                value: linkedinUrl
+              }
+            ]
+          }
+        ],
+        limit: 1,
+        properties: ['id', 'firstname', 'lastname', 'linkedin']
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${HUBSPOT_TOKEN}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    const results = response.data.results || [];
+    return results.length > 0;
+  } catch (error) {
+    // Si hay error, asumir que no es duplicado para no bloquear la creación
+    console.warn('Error checking duplicate contact by LinkedIn:', error.message);
+    return false;
+  }
+};
+
+/**
+ * Crea un contacto en HubSpot
+ * @param {Object} personData - Datos del perfil {name, title, company, location, profileUrl}
+ * @param {string} companyWebsite - URL del website de la empresa (opcional)
+ * @returns {Promise<Object|null>} Contacto creado o null si hay error, o {duplicate: true} si es duplicado
+ */
+const createContact = async (personData, companyWebsite = null) => {
+  try {
+    // Verificar duplicados primero
+    const isDuplicate = await checkDuplicateContactByLinkedIn(personData.profileUrl);
+    if (isDuplicate) {
+      console.log(`⚠️  Duplicate contact found for LinkedIn profile: ${personData.profileUrl}`);
+      return { duplicate: true };
+    }
+
+    // Preparar propiedades del contacto
+    const contactProperties = {};
+
+    // Nombre completo - intentar dividir en first y last name
+    if (personData.name) {
+      const nameParts = personData.name.trim().split(' ');
+      if (nameParts.length > 0) {
+        contactProperties.firstname = nameParts[0];
+        if (nameParts.length > 1) {
+          contactProperties.lastname = nameParts.slice(1).join(' ');
+        }
+      }
+    }
+
+    // Cargo actual
+    if (personData.title) {
+      contactProperties.jobtitle = personData.title;
+      contactProperties.n3_3__que_cargo_s__o_funcion_es__desempenan_dentro_de_la_organizacion____puedes_incluir_una_breve_d = personData.title;
+    }
+
+    // Empresa actual
+    if (personData.company) {
+      contactProperties.company = personData.company;
+    }
+
+    // Ubicación
+    if (personData.location) {
+      contactProperties.city = personData.location;
+    }
+
+    // LinkedIn URL
+    contactProperties.linkedin = personData.profileUrl;
+
+    // Website de la empresa (si se proporciona)
+    if (companyWebsite) {
+      contactProperties.website = companyWebsite;
+    }
+
+    // Log de datos que se van a guardar
+    console.log('=== GUARDANDO CONTACTO EN HUBSPOT ===');
+    console.log(`Nombre: ${personData.name || 'N/A'}`);
+    console.log(`Cargo: ${personData.title || 'N/A'}`);
+    console.log(`Función específica: ${personData.title || 'N/A'}`);
+    console.log(`Empresa: ${personData.company || 'N/A'}`);
+    console.log(`Ubicación: ${personData.location || 'N/A'}`);
+    console.log(`LinkedIn: ${personData.profileUrl}`);
+    if (companyWebsite) {
+      console.log(`Website empresa: ${companyWebsite}`);
+    }
+    console.log('================================');
+
+    // Crear el contacto
+    const response = await axios.post(
+      `${HUBSPOT_BASE_URL}/crm/v3/objects/contacts`,
+      {
+        properties: contactProperties
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${HUBSPOT_TOKEN}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    console.log(`✅ Contact created in HubSpot: ${personData.name || 'Unknown'}`);
+    console.log(`=== CONTACTO CREADO EXITOSAMENTE ===`);
+    console.log(`Contact ID: ${response.data.id}`);
+    console.log('================================');
+
+    return response.data;
+  } catch (error) {
+    console.error('=== HubSpot Create Contact Error ===');
+    console.error('Status:', error.response?.status);
+    console.error('Response Data:', JSON.stringify(error.response?.data, null, 2));
+    console.error('Error Message:', error.message);
+    console.error('================================');
+    return null;
+  }
+};
+
+/**
  * Crea un deal en HubSpot para un perfil encontrado
  * @param {Object} personData - Datos del perfil {name, title, company, location, profileUrl}
  * @param {string} searchCompany - Nombre de la empresa buscada
@@ -325,7 +467,7 @@ const createDealForPerson = async (personData, searchCompany, searchJobTitle) =>
 
     // Obtener stage ID
     let dealStageId = HUBSPOT_DEAL_STAGE_ID;
-    
+
     // Validar que el stage ID sea numérico si está configurado
     if (dealStageId && !/^\d+$/.test(dealStageId)) {
       console.warn(`Invalid HUBSPOT_DEAL_STAGE_ID format: ${dealStageId}, using first stage of pipeline`);
@@ -342,7 +484,34 @@ const createDealForPerson = async (personData, searchCompany, searchJobTitle) =>
     }
 
     // Validar pipeline ID
-    const pipelineId = /^\d+$/.test(HUBSPOT_PIPELINE_ID) ? HUBSPOT_PIPELINE_ID : '811215668';
+    const pipelineId = /^\d+$/.test(HUBSPOT_PIPELINE_ID) ? HUBSPOT_PIPELINE_ID : '654720623'; // Default: proyectos
+
+    // Crear el contacto primero
+    let contactResult = null;
+    try {
+      // Intentar extraer website de la empresa de currentPosition si está disponible
+      let companyWebsite = null;
+      if (personData.currentPosition && personData.currentPosition.length > 0) {
+        const currentPos = personData.currentPosition[0];
+        if (currentPos.company && currentPos.company.website) {
+          companyWebsite = currentPos.company.website;
+        } else if (currentPos.companyWebsite) {
+          companyWebsite = currentPos.companyWebsite;
+        }
+      }
+
+      console.log(`Intentando crear contacto para: ${personData.name || 'N/A'}`);
+      contactResult = await createContact(personData, companyWebsite);
+      if (contactResult && contactResult.duplicate) {
+        console.log(`Contacto duplicado encontrado, usando el existente`);
+      } else if (contactResult) {
+        console.log(`Contacto creado exitosamente: ${contactResult.id}`);
+      } else {
+        console.warn(`No se pudo crear el contacto para: ${personData.name || 'N/A'}`);
+      }
+    } catch (contactError) {
+      console.warn(`Error creando contacto: ${contactError.message}`);
+    }
 
     // Construir descripción
     const description = `Perfil de LinkedIn encontrado por búsqueda\n\n` +
@@ -373,18 +542,37 @@ const createDealForPerson = async (personData, searchCompany, searchJobTitle) =>
     console.log('================================');
 
     // Crear el deal
+    const dealProperties = {
+      dealname: dealName,
+      description: description,
+      amount: '0',
+      deal_currency_code: 'MXN',
+      pipeline: pipelineId,
+      dealstage: dealStageId,
+      link_original_de_la_noticia: personData.profileUrl // Guardar el link del perfil de LinkedIn
+    };
+
+    // Asociar el contacto al deal si se creó exitosamente
+    const associations = [];
+    if (contactResult && !contactResult.duplicate && contactResult.id) {
+      associations.push({
+        to: { id: contactResult.id },
+        types: [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 3 }] // 3 = deal_to_contact association
+      });
+    }
+
+    const dealData = {
+      properties: dealProperties
+    };
+
+    // Agregar associations si hay contactos para asociar
+    if (associations.length > 0) {
+      dealData.associations = associations;
+    }
+
     const response = await axios.post(
       `${HUBSPOT_BASE_URL}/crm/v3/objects/deals`,
-      {
-        properties: {
-          dealname: dealName,
-          description: description,
-          amount: '0',
-          deal_currency_code: 'MXN',
-          pipeline: pipelineId,
-          dealstage: dealStageId
-        }
-      },
+      dealData,
       {
         headers: {
           'Authorization': `Bearer ${HUBSPOT_TOKEN}`,
@@ -522,6 +710,8 @@ module.exports = {
   getPipelinesAndStages,
   getValidStageId,
   checkDuplicateDeal,
+  checkDuplicateContactByLinkedIn,
+  createContact,
   createDealForPerson,
   createDealForPost
 };
